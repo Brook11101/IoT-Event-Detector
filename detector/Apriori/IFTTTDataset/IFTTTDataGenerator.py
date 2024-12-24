@@ -5,17 +5,16 @@ from numpy.random import randint
 import numpy as np
 import configparser
 
-
 numOfUser = 10
 # numOfDevice = 20/30/40/50
 numOfDevice = 50
-npyPath = "../../Datasets/IFTTTDataset/"+str(numOfDevice)+"/0/npy/"
+npyPath = "../../Datasets/IFTTTDataset/" + str(numOfDevice) + "/0/npy/"
 devicePath = npyPath + "randomDeviceList.npy"
 times = 40
-Records = str(numOfDevice)+  "IFTTTRecords.txt"
-TriggerRecords = str(numOfDevice)+"IFTTTTriggerRecords.txt"
-ActionRecords = str(numOfDevice)+"IFTTTActionRecords.txt"
-ACCFile = str(numOfDevice)+"IFTTTACC.txt"
+Records = str(numOfDevice) + "IFTTTRecords.txt"
+TriggerRecords = str(numOfDevice) + "IFTTTTriggerRecords.txt"
+ActionRecords = str(numOfDevice) + "IFTTTActionRecords.txt"
+ACCFile = str(numOfDevice) + "IFTTTACC.txt"
 all_rules = []
 
 
@@ -45,12 +44,13 @@ def setOffice(devicesList, devicesStatus):
             office[device] = ''
     return office
 
+
 def getDeviceStatus(deviceList):
     # statusMap用于分析设备action动作与trigger的关联，判断某个动作执行后哪些规则会被触发，key是action，value是trigger
     triggerStatus = {}
     actionStatus = {}
     statusMap = {}
-    for device in devicesList:
+    for device in deviceList:
         path = "../../Datasets/TA_Popular/" + str(device) + "/"
         triggerPath = path + "Trigger.csv"
         actionPath = path + "Action.csv"
@@ -91,9 +91,9 @@ def getDeviceStatus(deviceList):
         statusMap[device] = tmp
     return triggerStatus, actionStatus, statusMap
 
+
 # 基于DeviceList得到的statusMap，将文件中的规则转换成可用的字典形式
 def setRules(statusMap):
-
     # {"score": 4, "Trigger": ["MijiaDoorLock", 0], "Condition": [],
     #     #  "Action": [["YeelightCeilingLamp1", 0], ["YeelightCeilingLamp2", 0], ["YeelightCeilingLamp3", 0],
     #     #             ["YeelightCeilingLamp5", 0], ["YeelightCeilingLamp6", 0]],
@@ -115,7 +115,7 @@ def setRules(statusMap):
                 rule["Action"] = []
                 # 提取该action对应的所有trigger，在statusMap中
                 for tmp in statusMap[item[5]][item[3]]:
-                  rule["Action"].append([item[5], tmp])
+                    rule["Action"].append([item[5], tmp])
             else:
                 rule["Action"] = [[item[5], item[3]]]
 
@@ -126,6 +126,7 @@ def setRules(statusMap):
     #       最终这样做的目的就是将一个规则的action直接转化成其他可能的规则的trigger（action设备上的状态切换），trigger-action-trigger的形式
     #       由action到trigger的转化是由statusMap建立的映射来实现的
     return rules
+
 
 # 改变时间的状态
 def changeTime(time):
@@ -139,6 +140,7 @@ def changeTime(time):
     hour = (int(minute / 60) + hour) % 24
     minute = minute % 60
     return str(hour * 10000 + minute * 100 + second)
+
 
 def updateOfficeStatus(office, devicesStatus):
     old_office = copy.copy(office)
@@ -158,18 +160,21 @@ def updateOfficeStatus(office, devicesStatus):
     for item in list(office.keys()):
         # 判断设备状态是否发生了不一致，认为规则被触发
         if office[item] != old_office[item]:
-            ans.append([[item, office[item]],0])
+            ans.append([[item, office[item]], 0])
     return ans
+
 
 # 获取将要执行的规则列表
 def findPotientialRules(Triggers, rules):
     potientialRules = []
+    global countNum
     for rule in rules:
         if rule[0] in Triggers:
             if rule not in all_rules:
                 all_rules.append(rule)
             potientialRules.append(copy.copy(rule))
     return potientialRules
+
 
 # rules乱序执行生成历史记录，这里模拟大量规则随机执行并生成执行记录可能对我有用，相当于设定了逻辑上的执行规则
 def mergeRules(rules):
@@ -194,6 +199,7 @@ def mergeRules(rules):
             rules[index].pop(0)
     return ans
 
+
 def create_records(rules, office, devicesStatus):
     file = open(Records, "w", encoding='utf-8')
     Triggers = updateOfficeStatus(office, devicesStatus)
@@ -202,9 +208,10 @@ def create_records(rules, office, devicesStatus):
     exectionRules = potientialRules
     # 用随机数把规则进行乱序执行
     mergeArray = mergeRules(exectionRules)
-    file.write(str(mergeArray) +"\n")
+    file.write(str(mergeArray) + "\n")
     # 把当前一轮一次执行的规则都记录下来
     return mergeArray
+
 
 # 由历史记录生成trigger_record和action_record，从而用于后续Apriori推理
 # 是基于mergeArrays进行records抽取的，因此规则执行的次数越多，得到的rule record越多，抽出的trigger/action records也越多，推理的更加准确
@@ -222,12 +229,12 @@ def create_tables(mergeArrays):
             # 遇到1的标志说明遇到了description
             if item[1] == 1:
                 temp = copy.copy(temp_trigger)
-                temp.append(str(item[0])+","+str(item[1]))
+                temp.append(str(item[0]) + "," + str(item[1]))
                 # 原理就是在这个规则description之前，即代表规则执行前，收到的所有trigger都可能是导致该规则触发的trigger
                 # 相当于给每一个规则把之前触发的trigger都记录下来了，用于匹配
                 trigger_records.append(temp)
             else:
-                temp_trigger.append(str(item[0])+","+str(item[1]))
+                temp_trigger.append(str(item[0]) + "," + str(item[1]))
 
     # get action_records
     for record in mergeArrays:
@@ -235,20 +242,21 @@ def create_tables(mergeArrays):
         # 因为action在后，所以要进行reverse，拿到的首先是action
         for item in reversed(record):
             # 遇到1的标志说明遇到了description
-            if item[1] == 1 :
+            if item[1] == 1:
                 temp = copy.copy(temp_action)
-                temp.append(str(item[0])+","+str(item[1]))
+                temp.append(str(item[0]) + "," + str(item[1]))
                 # 记录下该规则发生前的所有action的record
                 action_records.append(temp)
             else:
-                temp_action.append(str(item[0])+","+str(item[1]))
+                temp_action.append(str(item[0]) + "," + str(item[1]))
     #    这种trigger和action的记录相当于是重复记录，trigger_records和action_records的每一个item都包含了重复项
-    with open(TriggerRecords,"w", encoding="utf-8") as f:
+    with open(TriggerRecords, "w", encoding="utf-8") as f:
         f.write(str(trigger_records))
 
     with open(ActionRecords, "w", encoding="utf-8") as f:
         f.write(str(action_records))
-    return trigger_records,action_records
+    return trigger_records, action_records
+
 
 # 获取rule对应的记录
 def getSubRecord(rule, trigger_records):
@@ -259,8 +267,8 @@ def getSubRecord(rule, trigger_records):
             ans.append(item)
     return ans
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
 
     devicesList = np.load(devicePath)
     devicesStatus = setDeviceStatus(devicesList)
@@ -283,11 +291,14 @@ if __name__ == "__main__":
         mergeArrays.append(mergeArray)
         trigger_records, action_records = create_tables(mergeArrays)
         num_true = 0
+        # 遍历每一个规则，判断规则是否被触发
         for item in rules:
             trigger = str(item[0][0]) + "," + str(item[0][1])
             rule = str(item[1][0]) + "," + str(item[1][1])
             action = str(item[2][0]) + "," + str(item[2][1])
-            #   # 假设我们想找'100,0'这个规则的trigger
+            # 对于没有被触发的规则，其dataset为空集
+            # 始终是寻找的已经被触发的规则，然后根据apriori的结果看他是否有被识别出来
+            # 这种判断方式属于遍历所有规则，检查其识别率，这里得到的是准确率
             dataset_trigger = getSubRecord(rule, trigger_records)
             dataset_action = getSubRecord(rule, action_records)
 
@@ -310,8 +321,6 @@ if __name__ == "__main__":
                         action_flag = 1
                 if action_flag == 1:
                     break
-            # if trigger_flag==1 & action_flag ==1:
-            #     print(rule)
         accuracy = num_true / (2 * len(rules))
         print(accuracy)
         accfile.write(str(accuracy) + "\n")
