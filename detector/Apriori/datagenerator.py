@@ -279,7 +279,7 @@ def getDeviceStatus(deviceList):
   triggerStatus = {}
   actionStatus = {}
   statusMap = {}
-  for device in devicesList:
+  for device in deviceList:
     path = "../resources/TA_Popular/" + str(device) + "/"
     triggerPath = path + "Trigger.csv"
     actionPath = path + "Action.csv"

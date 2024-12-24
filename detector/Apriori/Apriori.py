@@ -211,4 +211,4 @@ if __name__ == "__main__":
     # print("Big Rules")
     # for item in big_rules_list:
     #     print(item[0], "=>", item[1], "conf: ", item[2])
-    print(get_target_rule('A1'))
+    # print(get_target_rule('A1'))

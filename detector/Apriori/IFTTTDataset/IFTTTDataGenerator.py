@@ -6,7 +6,7 @@ import numpy as np
 import configparser
 
 
-numOfUser = 5
+numOfUser = 10
 # numOfDevice = 20/30/40/50
 numOfDevice = 50
 npyPath = "../../Datasets/IFTTTDataset/"+str(numOfDevice)+"/0/npy/"
@@ -46,7 +46,7 @@ def setOffice(devicesList, devicesStatus):
     return office
 
 def getDeviceStatus(deviceList):
-    # statusMap用于分析设备action动作与trigger的关联，判断某个动作执行后哪些规则会被触发
+    # statusMap用于分析设备action动作与trigger的关联，判断某个动作执行后哪些规则会被触发，key是action，value是trigger
     triggerStatus = {}
     actionStatus = {}
     statusMap = {}
@@ -81,6 +81,7 @@ def getDeviceStatus(deviceList):
         p_default = config['DEFAULT']
         p_default = eval('[' + p_default['ATlist'] + ']')
 
+        # statusMap内层字典是动作与触发状态的组合
         tmp = {}
         if len(p_default) != 0:
             for item in p_default:
@@ -90,7 +91,7 @@ def getDeviceStatus(deviceList):
         statusMap[device] = tmp
     return triggerStatus, actionStatus, statusMap
 
-# 将随机生成的规则转换成可使用的字典形式
+# 基于DeviceList得到的statusMap，将文件中的规则转换成可用的字典形式
 def setRules(statusMap):
 
     # {"score": 4, "Trigger": ["MijiaDoorLock", 0], "Condition": [],
@@ -112,6 +113,7 @@ def setRules(statusMap):
             rule["Condition"] = []
             if item[3] in statusMap[item[5]].keys():
                 rule["Action"] = []
+                # 提取该action对应的所有trigger，在statusMap中
                 for tmp in statusMap[item[5]][item[3]]:
                   rule["Action"].append([item[5], tmp])
             else:
@@ -121,6 +123,8 @@ def setRules(statusMap):
             rule["triggerType"] = 0
             rule["user"] = user
             rules.append(rule)
+    #       最终这样做的目的就是将一个规则的action直接转化成其他可能的规则的trigger（action设备上的状态切换），trigger-action-trigger的形式
+    #       由action到trigger的转化是由statusMap建立的映射来实现的
     return rules
 
 # 改变时间的状态
@@ -145,6 +149,7 @@ def updateOfficeStatus(office, devicesStatus):
     for device in devices:
         if len(devicesStatus[device]) != 0:
             # 随机扰动设备状态
+            # Trigger设备状态发生了变化
             office[device] = np.random.choice(devicesStatus[device], 1)[0]
         else:
             office[device] = ''
@@ -182,7 +187,10 @@ def mergeRules(rules):
             indexs.remove(index)
             continue
         else:
+            # 因此，取的是rules[index][0]，取开头的即可
             ans.append(rules[index][0])
+            # 通过这样的方式把一条规则打散了，抽取成trigger、description、action的部分依次加入。中间为1的是description
+            # description分隔了trigger和action（虽然action也是trigger）
             rules[index].pop(0)
     return ans
 
@@ -190,26 +198,33 @@ def create_records(rules, office, devicesStatus):
     file = open(Records, "w", encoding='utf-8')
     Triggers = updateOfficeStatus(office, devicesStatus)
     potientialRules = findPotientialRules(Triggers, rules)
-
+    # 找到了要执行的规则
     exectionRules = potientialRules
-
+    # 用随机数把规则进行乱序执行
     mergeArray = mergeRules(exectionRules)
     file.write(str(mergeArray) +"\n")
-
+    # 把当前一轮一次执行的规则都记录下来
     return mergeArray
 
-# 由历史记录生成trigger_record和action_record，从而用于后续基于Apriori的恢复
+# 由历史记录生成trigger_record和action_record，从而用于后续Apriori推理
+# 是基于mergeArrays进行records抽取的，因此规则执行的次数越多，得到的rule record越多，抽出的trigger/action records也越多，推理的更加准确
 def create_tables(mergeArrays):
+    # 在mergeArays里面，这个字典每一个key对应的字典里面，每一轮记录是一个执行规则trigger、description、action打散后的结果
     trigger_records = []
     action_records = []
 
     # get trigger_records
+
+    # 这里处理的是每一轮的执行，生成其trigger/action records，并全部汇总
     for record in mergeArrays:
         temp_trigger = []
         for item in record:
+            # 遇到1的标志说明遇到了description
             if item[1] == 1:
                 temp = copy.copy(temp_trigger)
                 temp.append(str(item[0])+","+str(item[1]))
+                # 原理就是在这个规则description之前，即代表规则执行前，收到的所有trigger都可能是导致该规则触发的trigger
+                # 相当于给每一个规则把之前触发的trigger都记录下来了，用于匹配
                 trigger_records.append(temp)
             else:
                 temp_trigger.append(str(item[0])+","+str(item[1]))
@@ -217,13 +232,17 @@ def create_tables(mergeArrays):
     # get action_records
     for record in mergeArrays:
         temp_action = []
+        # 因为action在后，所以要进行reverse，拿到的首先是action
         for item in reversed(record):
+            # 遇到1的标志说明遇到了description
             if item[1] == 1 :
                 temp = copy.copy(temp_action)
                 temp.append(str(item[0])+","+str(item[1]))
+                # 记录下该规则发生前的所有action的record
                 action_records.append(temp)
             else:
                 temp_action.append(str(item[0])+","+str(item[1]))
+    #    这种trigger和action的记录相当于是重复记录，trigger_records和action_records的每一个item都包含了重复项
     with open(TriggerRecords,"w", encoding="utf-8") as f:
         f.write(str(trigger_records))
 
@@ -234,6 +253,7 @@ def create_tables(mergeArrays):
 # 获取rule对应的记录
 def getSubRecord(rule, trigger_records):
     ans = []
+    # 根据规则去找到所有的trigger records
     for item in trigger_records:
         if item[-1] == rule:
             ans.append(item)
@@ -247,12 +267,12 @@ if __name__ == "__main__":
     office = setOffice(devicesList, devicesStatus)
     triggerStatus, actionStatus, statusMap = getDeviceStatus(devicesList)
     rules = setRules(statusMap)
-    print(rules)
 
     rules_new = []
     for rule in rules:
         rules_new.append([[rule['Trigger'], 0], [rule['description'], 1], [rule['Action'], 0]])
     rules = rules_new
+    # print(rules)
 
     accfile = open(ACCFile, "w", encoding="utf-8")
 
@@ -290,6 +310,8 @@ if __name__ == "__main__":
                         action_flag = 1
                 if action_flag == 1:
                     break
+            # if trigger_flag==1 & action_flag ==1:
+            #     print(rule)
         accuracy = num_true / (2 * len(rules))
         print(accuracy)
         accfile.write(str(accuracy) + "\n")
