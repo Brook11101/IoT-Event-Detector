@@ -369,7 +369,7 @@ if __name__ == "__main__":
             trigger = str(item[0][0]) + "," + str(item[0][1])
             rule = str(item[1][0]) + "," + str(item[1][1])
             action = str(item[2][0]) + "," + str(item[2][1])
-            #   # 假设我们想找'100,0'这个规则的trigger
+            # 获取规则的records
             dataset_trigger = getSubRecord(rule, trigger_records)
             dataset_action = getSubRecord(rule, action_records)
 

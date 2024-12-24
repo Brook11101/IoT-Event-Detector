@@ -1,9 +1,7 @@
 *.txt
 *.npy
 *.csv
-
-
 /detector/Datasets/
-/detector/matcher/
 
 
+/detector/matcher/IFTTT/TAWFST-main/
