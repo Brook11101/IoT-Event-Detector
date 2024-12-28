@@ -5,13 +5,14 @@ import os
 import json
 import numpy as np
 
-devices = 20
+devices = 40
 cyctime = 8
-epoch = 1500
+epoch = 500
 
 users = 5
 rules = 20
-npyPath = "./"+str(devices)+"/" +str(cyctime) + "/npy/"
+
+npyPath = "./"+str(rules)+"/" +str(cyctime) + "/npy/"
 devicePath = npyPath + "randomDeviceList.npy"
 # rulePath = "./resources/Rules/"
 
@@ -67,7 +68,7 @@ def getDeviceStatus(deviceList):
     actionStatus = {}
     statusMap = {}
     for device in devicesList:
-        path = "./resources/TA_Popular/"+str(device)+"/"
+        path = "../../Datasets/TA_Popular/"+str(device)+"/"
         triggerPath = path + "Trigger.csv"
         actionPath = path + "Action.csv"
         statePath = path + "state.ini"
@@ -103,12 +104,7 @@ def getDeviceStatus(deviceList):
                 tmp[actionStatus[device][item[0]-2]] = []
                 for i in range(1, len(item)):
                     tmp[actionStatus[device][item[0]-2]].append(triggerStatus[device][item[i]-2])
-
-
-
         statusMap[device] = tmp
-
-
     return triggerStatus, actionStatus, statusMap
 
 
@@ -489,7 +485,7 @@ def setDeviceStatus(devicesList):
     deviceStatus = {}
     for device in devicesList:
         deviceStatus[device] = []
-        path = "./resources/TA_Popular/"+device +"/Trigger.csv"
+        path = "../../Datasets/TA_Popular/"+device +"/Trigger.csv"
         file = open(path, "r", encoding='utf-8')
         lines = file.readlines()
         for line in lines:

@@ -190,7 +190,6 @@ def updateOfficeStatus(office):
     for item in list(office.keys()):
         if office[item] != old_office[item]:
             ans.append([item, office[item]])
-        # ans.append([item, office[item]])
     return ans
 
 def runRules(office, Triggers, rules, id):
@@ -213,9 +212,11 @@ def runRules(office, Triggers, rules, id):
 
     while len(Triggers) != 0 and eporch < 50:
         potientialRules = findPotientialRules(Triggers, rules)
+        # 随机打乱，不放回抽样
         potientialRules = np.random.choice(potientialRules, len(potientialRules), False)
 
         for rule in potientialRules:
+            # 条件不满足，跳过执行
             if len(rule['Condition'])  != 0 and ((rule['Condition'][0] == 'time' and int(rule['Condition'][1]) != int(office["time"])) or office[rule['Condition'][0]] != rule['Condition'][1]):
                 temp = copy.copy(rule)
                 temp["id"] = id
@@ -234,6 +235,7 @@ def runRules(office, Triggers, rules, id):
                 temp["id"] = id
                 temp["status"] = "run"
                 temp["time"] = time
+                # 没有triggerId就用当前的id，说明是一个新触发的trigger
                 if triggerId[str(rule["Trigger"])] == 0:
                     temp["triggerId"] = id
                     temp["ancestor"] = id
@@ -245,11 +247,12 @@ def runRules(office, Triggers, rules, id):
 
                 # 添加新的Action
                 for item in rule["Action"]:
+                    # 动作执行，修改房间状态
                     office[item[0]] = item[1]
                     Actions.append(item)
                     actionId[str(item)] = id
-
             id += 1
+        # 攻防转换
         Triggers = Actions
         triggerId = actionId
         Actions = []
@@ -296,17 +299,17 @@ def ConflictsToFile(office, conflict, type):
         data += str(conflict[1]["description"]) + ","
 
         # exection,score1,score2
-        exection_data = ""
+        execution_data = ""
         if conflict[0]["score"]>conflict[1]["score"]:
-            exection_data += str(0)
+            execution_data += str(0)
         elif conflict[0]["score"]<conflict[1]["score"]:
-            exection_data += str(1)
+            execution_data += str(1)
         else:
-            exection_data += "null"
+            execution_data += "null"
 
-        exection_data += "\n"
+        execution_data += "\n"
 
-        f.write(office_data+data+type+","+user_data+exection_data)
+        f.write(office_data+data+type+","+user_data+execution_data)
 
 
 
@@ -553,30 +556,24 @@ if __name__ == '__main__':
     ALNum, ARnNum, ARtNum, ACNum, uCNum, CBsNum, CPNum, CBkNum, CCNum = 0, 0, 0, 0, 0, 0, 0, 0, 0
     UALNum, UARnNum, UARtNum, UACNum, UuCNum, UCBsNum, UCPNum, UCBkNum, UCCNum = 0, 0, 0, 0, 0, 0, 0, 0, 0
     for i in range(times):
-        logging.critical(
-            '——————————————————————————————————————————————————————————————————————————————————————————————')
-        logging.critical('随机改变场景')
-        logging.critical(
-            '——————————————————————————————————————————————————————————————————————————————————————————————')
+        logging.info('随机改变场景')  # 普通日志信息
         Triggers = updateOfficeStatus(office)
 
-        logging.critical(
-            '——————————————————————————————————————————————————————————————————————————————————————————————')
-        logging.critical('触发规则')
-        logging.critical(
-            '——————————————————————————————————————————————————————————————————————————————————————————————')
+        logging.info('触发规则')  # 普通日志信息
         logs, id = runRules(office, Triggers, rules, id)
 
-        logging.critical(
-            '——————————————————————————————————————————————————————————————————————————————————————————————')
-        logging.critical('冲突检查')
-        logging.critical(
-            '——————————————————————————————————————————————————————————————————————————————————————————————')
-        ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum, unexpectedConflictNum, ConditionBypassNum, \
-        ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum, UsersActionLoopNum, UsersActionRepetitionNum, \
-        UsersActionRevertNum, UsersActionConflictNum, UsersunexpectedConflictNum, UsersConditionBypassNum, UsersConditionPassNum, \
-        UsersConditionBlockNum, UsersConditionContradictoryNum = detector(logs, office)
+        logging.info('冲突检查')  # 普通日志信息
+        (
+            ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum, unexpectedConflictNum,
+            ConditionBypassNum,
+            ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum, UsersActionLoopNum,
+            UsersActionRepetitionNum,
+            UsersActionRevertNum, UsersActionConflictNum, UsersunexpectedConflictNum, UsersConditionBypassNum,
+            UsersConditionPassNum,
+            UsersConditionBlockNum, UsersConditionContradictoryNum
+        ) = detector(logs, office)
 
+        # 累计统计数据
         ALNum += ActionLoopNum
         ARnNum += ActionRepetitionNum
         ARtNum += ActionRevertNum
@@ -597,6 +594,13 @@ if __name__ == '__main__':
         UCBkNum += UsersConditionBlockNum
         UCCNum += UsersConditionContradictoryNum
 
-        print(ALNum, ARnNum, ARtNum, ACNum, uCNum, CBsNum, CPNum, CBkNum, CCNum)
-        print(UALNum, UARnNum, UARtNum, UACNum, UuCNum, UCBsNum, UCPNum, UCBkNum, UCCNum)
-        print("---next---")
+        # 每轮结束后用红线分隔，并输出统计结果
+        logging.critical('统计结果 (第 {} 次迭代)'.format(i + 1))
+        logging.critical(
+            'ALNum: {}, ARnNum: {}, ARtNum: {}, ACNum: {}, uCNum: {}, CBsNum: {}, CPNum: {}, CBkNum: {}, CCNum: {}'.format(
+                ALNum, ARnNum, ARtNum, ACNum, uCNum, CBsNum, CPNum, CBkNum, CCNum))
+        logging.critical(
+            'UALNum: {}, UARnNum: {}, UARtNum: {}, UACNum: {}, UuCNum: {}, UCBsNum: {}, UCPNum: {}, UCBkNum: {}, UCCNum: {}'.format(
+                UALNum, UARnNum, UARtNum, UACNum, UuCNum, UCBsNum, UCPNum, UCBkNum, UCCNum))
+        print('\n')
+
