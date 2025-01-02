@@ -1,8 +1,9 @@
 import copy
 import logging
 import numpy as np
+from datetime import datetime
 
-times = 78
+times = 1
 conflict_file = "conflicts_RealUser_"+str(times)+".csv"
 
 trigger_type = ["data", "switch", "sensor", "command"]
@@ -210,7 +211,7 @@ def runRules(office, Triggers, rules, id):
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
-    while len(Triggers) != 0 and eporch < 50:
+    while len(Triggers) != 0 and eporch < 1:
         potientialRules = findPotientialRules(Triggers, rules)
         # 随机打乱，不放回抽样
         potientialRules = np.random.choice(potientialRules, len(potientialRules), False)
@@ -228,6 +229,7 @@ def runRules(office, Triggers, rules, id):
                     temp["triggerId"] = triggerId[str(rule["Trigger"])]
                 temp["actionIds"] = []
                 temp["ancestor"] = ""
+                temp["triggerTime"] = int(datetime.now().timestamp())
                 logs.append(temp)
             else:
                 # 生成记录
@@ -243,6 +245,7 @@ def runRules(office, Triggers, rules, id):
                     temp["triggerId"] = triggerId[str(rule["Trigger"])]
                     temp["ancestor"] = ""
                 temp["actionIds"] = []
+                temp["triggerTime"] = int(datetime.now().timestamp())
                 logs.append(temp)
 
                 # 添加新的Action
@@ -306,6 +309,7 @@ def runSyncRules(office, Triggers, rules, syncid):
                     temp["triggerId"] = triggerId[str(rule["Trigger"])]
                 temp["actionIds"] = []
                 temp["ancestor"] = ""
+                temp["triggerTime"] = int(datetime.now().timestamp())
                 logs.append(temp)
             else:
                 # 生成记录
@@ -321,6 +325,7 @@ def runSyncRules(office, Triggers, rules, syncid):
                     temp["triggerId"] = triggerId[str(rule["Trigger"])]
                     temp["ancestor"] = ""
                 temp["actionIds"] = []
+                temp["triggerTime"] = int(datetime.now().timestamp())
                 logs.append(temp)
 
                 # 添加新的Action
