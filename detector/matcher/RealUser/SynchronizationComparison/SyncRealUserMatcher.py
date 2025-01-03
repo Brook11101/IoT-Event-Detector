@@ -211,7 +211,7 @@ def runRules(office, Triggers, rules, id):
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
-    while len(Triggers) != 0 and eporch < 1:
+    while len(Triggers) != 0 and eporch < 5:
         potientialRules = findPotientialRules(Triggers, rules)
         # 随机打乱，不放回抽样
         potientialRules = np.random.choice(potientialRules, len(potientialRules), False)
@@ -293,7 +293,7 @@ def runSyncRules(office, Triggers, rules, syncid):
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
-    while len(Triggers) != 0 and eporch < 50:
+    while len(Triggers) != 0 and eporch < 5:
         potientialRules = findPotientialRules(Triggers, rules)
 
         for rule in potientialRules:
