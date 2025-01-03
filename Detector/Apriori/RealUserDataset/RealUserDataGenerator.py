@@ -1,5 +1,5 @@
 import copy
-from detector.Apriori import Apriori
+from Detector.Apriori import Apriori
 from numpy.random import seed
 from numpy.random import randint
 import numpy as np

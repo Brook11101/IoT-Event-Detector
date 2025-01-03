@@ -68,7 +68,7 @@ def visualize_dfg(dag):
     plt.show()
 
 def main():
-    log_file_path = "E:\研究生信息收集\论文材料\IoT-Event-Detector\detector\matcher\RealUser\SynchronizationComparison\synclogs.txt"
+    log_file_path = "/Detector\Sequence\RealUser\CheckSequence\synclogs.txt"
 
     try:
         with open(log_file_path, "r", encoding="utf-8") as f:

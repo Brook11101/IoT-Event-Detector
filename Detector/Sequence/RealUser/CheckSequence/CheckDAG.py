@@ -117,15 +117,15 @@ if __name__ == "__main__":
     java_class_path = "concurrency.experiment.RealUser.ThreadPool.RealUserPriorityExecutor"
     log_file_path = "E:\\研究生信息收集\\论文材料\\IoT-Event-Proxy\\execution_log.txt"
 
-    # 构建 DFG
-    synclog_path = "E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\detector\\matcher\\RealUser\\SynchronizationComparison\\synclogs.txt"
+    # 构建 DAG
+    synclog_path = "synclogs.txt"
     with open(synclog_path, "r", encoding="utf-8") as f:
         log_data = f.read()
     rules = parse_logs(log_data)
     dfg = build_dfg(rules)
 
     # 多轮执行 Java 文件并验证 DFG
-    rounds = 5
+    rounds = 15
     violations_per_round = run_multiple_rounds(java_class_path, log_file_path, dfg, rounds)
 
     # 输出总结果
