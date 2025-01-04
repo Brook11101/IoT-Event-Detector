@@ -211,7 +211,7 @@ def runRules(office, Triggers, rules, id):
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
-    while len(Triggers) != 0 and eporch < 5:
+    while len(Triggers) != 0 and eporch < 1:
         potientialRules = findPotientialRules(Triggers, rules)
         # 随机打乱，不放回抽样
         potientialRules = np.random.choice(potientialRules, len(potientialRules), False)
@@ -293,7 +293,7 @@ def runSyncRules(office, Triggers, rules, syncid):
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
-    while len(Triggers) != 0 and eporch < 5:
+    while len(Triggers) != 0 and eporch < 1:
         potientialRules = findPotientialRules(Triggers, rules)
 
         for rule in potientialRules:
@@ -651,20 +651,51 @@ if __name__ == '__main__':
         logging.info('顺序执行触发规则')
         synclogs, syncid = runSyncRules(office, Triggers, rules, syncid)
 
-
-        # 对于随机模拟并发执行生成的日志进行CRI检测
-        # 检测的方式按照轮次来检测
-        logging.info('冲突检查')  # 普通日志信息
+        # 检测随机模拟并发执行生成的日志
+        logging.critical('冲突检查乱序执行日志')
         (
             ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum, unexpectedConflictNum,
-            ConditionBypassNum,
-            ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum, UsersActionLoopNum,
-            UsersActionRepetitionNum,
-            UsersActionRevertNum, UsersActionConflictNum, UsersunexpectedConflictNum, UsersConditionBypassNum,
-            UsersConditionPassNum,
-            UsersConditionBlockNum, UsersConditionContradictoryNum
+            ConditionBypassNum, ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum, UsersActionLoopNum,
+            UsersActionRepetitionNum, UsersActionRevertNum, UsersActionConflictNum, UsersunexpectedConflictNum,
+            UsersConditionBypassNum, UsersConditionPassNum, UsersConditionBlockNum, UsersConditionContradictoryNum
         ) = detector(logs, office)
 
+        logging.critical(
+            '乱序执行检测结果: '
+            'ActionLoopNum=%s, ActionRepetitionNum=%s, ActionRevertNum=%s, ActionConflictNum=%s, unexpectedConflictNum=%s, '
+            'ConditionBypassNum=%s, ConditionPassNum=%s, ConditionBlockNum=%s, ConditionContradictoryNum=%s, '
+            'UsersActionLoopNum=%s, UsersActionRepetitionNum=%s, UsersActionRevertNum=%s, UsersActionConflictNum=%s, '
+            'UsersunexpectedConflictNum=%s, UsersConditionBypassNum=%s, UsersConditionPassNum=%s, '
+            'UsersConditionBlockNum=%s, UsersConditionContradictoryNum=%s',
+            ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum, unexpectedConflictNum,
+            ConditionBypassNum, ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum,
+            UsersActionLoopNum, UsersActionRepetitionNum, UsersActionRevertNum, UsersActionConflictNum,
+            UsersunexpectedConflictNum, UsersConditionBypassNum, UsersConditionPassNum,
+            UsersConditionBlockNum, UsersConditionContradictoryNum
+        )
+
+        # 检测顺序执行生成的日志
+        logging.critical('冲突检查顺序执行日志')
+        (
+            ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum, unexpectedConflictNum,
+            ConditionBypassNum, ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum, UsersActionLoopNum,
+            UsersActionRepetitionNum, UsersActionRevertNum, UsersActionConflictNum, UsersunexpectedConflictNum,
+            UsersConditionBypassNum, UsersConditionPassNum, UsersConditionBlockNum, UsersConditionContradictoryNum
+        ) = detector(synclogs, office)
+
+        logging.critical(
+            '顺序执行检测结果: '
+            'ActionLoopNum=%s, ActionRepetitionNum=%s, ActionRevertNum=%s, ActionConflictNum=%s, unexpectedConflictNum=%s, '
+            'ConditionBypassNum=%s, ConditionPassNum=%s, ConditionBlockNum=%s, ConditionContradictoryNum=%s, '
+            'UsersActionLoopNum=%s, UsersActionRepetitionNum=%s, UsersActionRevertNum=%s, UsersActionConflictNum=%s, '
+            'UsersunexpectedConflictNum=%s, UsersConditionBypassNum=%s, UsersConditionPassNum=%s, '
+            'UsersConditionBlockNum=%s, UsersConditionContradictoryNum=%s',
+            ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum, unexpectedConflictNum,
+            ConditionBypassNum, ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum,
+            UsersActionLoopNum, UsersActionRepetitionNum, UsersActionRevertNum, UsersActionConflictNum,
+            UsersunexpectedConflictNum, UsersConditionBypassNum, UsersConditionPassNum,
+            UsersConditionBlockNum, UsersConditionContradictoryNum
+        )
 
         # 累计统计数据
         ALNum += ActionLoopNum
