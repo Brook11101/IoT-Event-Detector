@@ -115,7 +115,7 @@ def run_multiple_rounds(java_class_path, log_file_path, dfg, rounds=10):
 if __name__ == "__main__":
     # Java 类路径
     java_class_path = "concurrency.experiment.RealUser.ThreadPool.RealUserPriorityExecutor"
-    log_file_path = "E:\\研究生信息收集\\论文材料\\IoT-Event-Proxy\\execution_log.txt"
+    log_file_path = "E:\研究生信息收集\论文材料\IoT-Event-Proxy\src\main\java\concurrency\experiment\RealUser\ThreadPool\json\execution_log.txt"
 
     # 构建 DAG
     synclog_path = "synclogs.txt"

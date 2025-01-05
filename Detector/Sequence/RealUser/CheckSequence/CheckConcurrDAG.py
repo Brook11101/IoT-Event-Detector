@@ -11,7 +11,7 @@ def run_java_and_generate_logs(java_class_path, log_file_path):
     """
     try:
         # 清空日志文件
-        with open(log_file_path, "w", encoding="gbk") as f:
+        with open(log_file_path, "w", encoding="utf-8") as f:
             pass
 
         # 调用 Java 文件
@@ -52,8 +52,7 @@ def read_execution_logs(log_file_path):
     """
     execution_order = []
     try:
-        # 修改为 GBK 编码读取日志文件
-        with open(log_file_path, "r", encoding="gbk") as f:
+        with open(log_file_path, "r", encoding="utf-8") as f:
             for line in f:
                 rule_id, _ = line.strip().split(",", 1)
                 execution_order.append(int(rule_id))
@@ -156,7 +155,7 @@ def run_multiple_rounds(java_class_path_sequence, java_class_path_concurr, log_f
 if __name__ == "__main__":
     # 顺序执行 Java 类路径和日志路径
     java_class_path_sequence = "concurrency.experiment.RealUser.ThreadPool.RealUserPriorityExecutor"
-    log_file_path_sequence = "E:\\研究生信息收集\\论文材料\\IoT-Event-Proxy\\execution_log.txt"
+    log_file_path_sequence = "E:\研究生信息收集\论文材料\IoT-Event-Proxy\src\main\java\concurrency\experiment\RealUser\ThreadPool\json\execution_log.txt"
 
     # 并发执行 Java 类路径和日志路径
     java_class_path_concurr = "concurrency.experiment.RealUser.ThreadPool.RealUserConcurrentExecutor"

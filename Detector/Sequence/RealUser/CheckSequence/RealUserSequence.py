@@ -5,7 +5,7 @@ from multiprocessing.sharedctypes import synchronized
 import numpy as np
 from datetime import datetime
 
-times = 2
+times = 1
 conflict_file = "conflicts_RealUser_"+str(times)+".csv"
 
 trigger_type = ["data", "switch", "sensor", "command"]
@@ -296,7 +296,7 @@ def runSyncRules(office, Triggers, rules, syncid):
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
-    while len(Triggers) != 0 and eporch < 20:
+    while len(Triggers) != 0 and eporch < 10:
         potientialRules = findPotientialRules(Triggers, rules)
 
         for rule in potientialRules:
