@@ -1,9 +1,11 @@
 import copy
 import logging
+from multiprocessing.sharedctypes import synchronized
+
 import numpy as np
 from datetime import datetime
 
-times = 1
+times = 2
 conflict_file = "conflicts_RealUser_"+str(times)+".csv"
 
 trigger_type = ["data", "switch", "sensor", "command"]
@@ -287,13 +289,14 @@ def runSyncRules(office, Triggers, rules, syncid):
     time = int(office["time"])
     Actions = []
     actionId = {}
-    logfile = open("synclogs.txt", "a", encoding="utf-8")
+    synclogfile = open("synclogs.txt", "a", encoding="utf-8")
+    concurrlogfile = open("concurrlogs.txt", "a", encoding="utf-8")
 
 
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
-    while len(Triggers) != 0 and eporch < 1:
+    while len(Triggers) != 0 and eporch < 20:
         potientialRules = findPotientialRules(Triggers, rules)
 
         for rule in potientialRules:
@@ -349,8 +352,14 @@ def runSyncRules(office, Triggers, rules, syncid):
                     log["ancestor"] = logs[i]["ancestor"]
 
     for log in logs:
-        logfile.write(str(log)+"\n")
-    logfile.close()
+        synclogfile.write(str(log)+"\n")
+    synclogfile.close()
+
+    # 打乱 logs，模拟并发无序执行。但是后面用Java多线程来做并发无序。
+    shuffled_logs = list(np.random.permutation(logs))  # 打乱顺序
+    for log in shuffled_logs:
+        concurrlogfile.write(str(log) + "\n")  # 追加到并发日志文件
+
     return logs, syncid
 
 def findPotientialRules(Triggers, rules):
@@ -631,6 +640,8 @@ if __name__ == '__main__':
     logfile.close()
     synclogfile = open("synclogs.txt", "w", encoding="utf-8")
     synclogfile.close()
+    concurrlogfile = open("concurrlogs.txt", "w", encoding="utf-8")
+    concurrlogfile.close()
     criFile = open("CRIs.txt", "w", encoding="utf-8")
     criFile.close()
     conflictFile = open(conflict_file, "w", encoding='utf-8')
@@ -644,35 +655,35 @@ if __name__ == '__main__':
         logging.info('随机改变场景')  # 普通日志信息
         Triggers = updateOfficeStatus(office)
 
-        logging.info('乱序并发触发规则')  # 普通日志信息
-        logs, id = runRules(office, Triggers, rules, id)
+        # logging.info('乱序并发触发规则')  # 普通日志信息
+        # logs, id = runRules(office, Triggers, rules, id)
+
+        # # 检测随机模拟并发执行生成的日志
+        # logging.critical('冲突检查乱序执行日志')
+        # (
+        #     ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum, unexpectedConflictNum,
+        #     ConditionBypassNum, ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum, UsersActionLoopNum,
+        #     UsersActionRepetitionNum, UsersActionRevertNum, UsersActionConflictNum, UsersunexpectedConflictNum,
+        #     UsersConditionBypassNum, UsersConditionPassNum, UsersConditionBlockNum, UsersConditionContradictoryNum
+        # ) = detector(logs, office)
+
+        # logging.critical(
+        #     '乱序执行检测结果: '
+        #     'ActionLoopNum=%s, ActionRepetitionNum=%s, ActionRevertNum=%s, ActionConflictNum=%s, unexpectedConflictNum=%s, '
+        #     'ConditionBypassNum=%s, ConditionPassNum=%s, ConditionBlockNum=%s, ConditionContradictoryNum=%s, '
+        #     'UsersActionLoopNum=%s, UsersActionRepetitionNum=%s, UsersActionRevertNum=%s, UsersActionConflictNum=%s, '
+        #     'UsersunexpectedConflictNum=%s, UsersConditionBypassNum=%s, UsersConditionPassNum=%s, '
+        #     'UsersConditionBlockNum=%s, UsersConditionContradictoryNum=%s',
+        #     ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum, unexpectedConflictNum,
+        #     ConditionBypassNum, ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum,
+        #     UsersActionLoopNum, UsersActionRepetitionNum, UsersActionRevertNum, UsersActionConflictNum,
+        #     UsersunexpectedConflictNum, UsersConditionBypassNum, UsersConditionPassNum,
+        #     UsersConditionBlockNum, UsersConditionContradictoryNum
+        # )
 
         # 生成顺序执行时的规则日志
         logging.info('顺序执行触发规则')
         synclogs, syncid = runSyncRules(office, Triggers, rules, syncid)
-
-        # 检测随机模拟并发执行生成的日志
-        logging.critical('冲突检查乱序执行日志')
-        (
-            ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum, unexpectedConflictNum,
-            ConditionBypassNum, ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum, UsersActionLoopNum,
-            UsersActionRepetitionNum, UsersActionRevertNum, UsersActionConflictNum, UsersunexpectedConflictNum,
-            UsersConditionBypassNum, UsersConditionPassNum, UsersConditionBlockNum, UsersConditionContradictoryNum
-        ) = detector(logs, office)
-
-        logging.critical(
-            '乱序执行检测结果: '
-            'ActionLoopNum=%s, ActionRepetitionNum=%s, ActionRevertNum=%s, ActionConflictNum=%s, unexpectedConflictNum=%s, '
-            'ConditionBypassNum=%s, ConditionPassNum=%s, ConditionBlockNum=%s, ConditionContradictoryNum=%s, '
-            'UsersActionLoopNum=%s, UsersActionRepetitionNum=%s, UsersActionRevertNum=%s, UsersActionConflictNum=%s, '
-            'UsersunexpectedConflictNum=%s, UsersConditionBypassNum=%s, UsersConditionPassNum=%s, '
-            'UsersConditionBlockNum=%s, UsersConditionContradictoryNum=%s',
-            ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum, unexpectedConflictNum,
-            ConditionBypassNum, ConditionPassNum, ConditionBlockNum, ConditionContradictoryNum,
-            UsersActionLoopNum, UsersActionRepetitionNum, UsersActionRevertNum, UsersActionConflictNum,
-            UsersunexpectedConflictNum, UsersConditionBypassNum, UsersConditionPassNum,
-            UsersConditionBlockNum, UsersConditionContradictoryNum
-        )
 
         # 检测顺序执行生成的日志
         logging.critical('冲突检查顺序执行日志')
