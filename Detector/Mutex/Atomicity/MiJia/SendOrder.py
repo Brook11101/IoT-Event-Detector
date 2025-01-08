@@ -120,6 +120,10 @@ class XiaomiCloudConnector:
         return self.execute_api_call_encrypted(url, param)
 
     def execute_api_call_encrypted(self, url, params):
+        proxies = {
+            "http": "http://127.0.0.1:8888",
+            "https": "http://127.0.0.1:8888",
+        }
         headers = {
             "Accept-Encoding": "identity",
             "User-Agent": self._agent,
@@ -141,7 +145,7 @@ class XiaomiCloudConnector:
         nonce = self.generate_nonce(millis)
         signed_nonce = self.signed_nonce(nonce)
         fields = self.generate_enc_params(url, "POST", signed_nonce, nonce, params, self._ssecurity)
-        response = self._session.post(url, headers=headers, cookies=cookies, params=fields)
+        response = self._session.post(url, headers=headers, cookies=cookies, params=fields, proxies=proxies, verify="E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\Atomicity\MiJia\Data\Desktop.pem")
         if response.status_code == 200:
             decoded = self.decrypt_rc4(self.signed_nonce(fields["_nonce"]), response.text)
             return decoded
