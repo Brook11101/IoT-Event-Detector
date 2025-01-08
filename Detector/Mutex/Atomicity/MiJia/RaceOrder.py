@@ -7,6 +7,8 @@ import os
 import random
 import time
 from sys import platform
+from threading import Thread
+
 from Crypto.Cipher import ARC4
 
 import requests
@@ -231,21 +233,35 @@ def print_entry(key, value, tab):
         print_tabbed(f'{key + ":": <10}{value}', tab)
 
 
-username = "2844532281"
-password = "whd123456"
-servers = ["cn"]
+def worker(connector, country, value):
+    result = connector.create_order(country, value)
+    print(f"Thread for value {value} completed with result: {result}")
 
-connector = XiaomiCloudConnector(username, password)
-print("Logging in...")
-logged = connector.login()
-if logged:
+def main():
+    username = "2844532281"
+    password = "whd123456"
+    country = "cn"
+
+    connector = XiaomiCloudConnector(username, password)
+    print("Logging in...")
+    if not connector.login():
+        print("Login failed.")
+        return
+
     print("Logged in.")
-    print()
-    for current_server in servers:
-        result = connector.create_order(current_server, 100)
-        if result is not None:
-            print(result)
-        else:
-            print(f"Unable to make order from server {current_server}.")
-else:
-    print("Unable to log in.")
+
+    threads = []
+    for value in range(1, 100):
+        thread = Thread(target=worker, args=(connector, country, value))
+        threads.append(thread)
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    print("All threads completed.")
+
+
+if __name__ == "__main__":
+    main()
+
