@@ -1,0 +1,15 @@
+
+send message:
+调节亮度
+{'params': [{'did': '134440830', 'siid': 2, 'piid': 2, 'value': 1}]}
+
+response message:
+{"code":0,"message":"ok","result":[{"did":"134440830","iid":"0.2.2","siid":2,"piid":2,"code":0,"exe_time":0}]}
+
+
+send message:
+设置定时规则
+{'identify': 'prop.2.1.true.false', 'name': '灯泡-定时', 'st_id': 8, 'setting': {'enable_push': '1', 'enable_timer': '1', 'enable_timer_off': '0', 'enable_timer_on': '1', 'off_method': 'set_properties', 'off_param': [{'value': False, 'piid': 1, 'siid': 2, 'did': '134440830'}], 'on_method': 'set_properties', 'on_param': [{'value': True, 'piid': 1, 'siid': 2, 'did': '134440830'}], 'on_time': '2 10 14 9 1 * 2025', 'off_time': '2 10 14 9 1 * 2025', 'timer_type': '0', 'on_filter': '', 'off_filter': ''}, 'authed': ['134440830']}
+
+response message:
+{"code":0,"message":"ok","result":{"status":0,"us_id":3181716650}}
