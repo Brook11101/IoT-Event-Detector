@@ -13,3 +13,8 @@ send message:
 
 response message:
 {"code":0,"message":"ok","result":{"status":0,"us_id":3181716650}}
+
+
+send messgage
+米家插座
+{'params': [{'did': '732386272', 'siid': 2, 'piid': 1, 'value': value}]}

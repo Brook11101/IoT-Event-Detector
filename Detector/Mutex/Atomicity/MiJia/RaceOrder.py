@@ -8,7 +8,9 @@ import random
 import time
 from sys import platform
 from threading import Thread
+from time import sleep
 
+import numpy as np
 from Crypto.Cipher import ARC4
 
 import requests
@@ -251,15 +253,28 @@ def main():
     print("Logged in.")
 
     threads = []
-    for value in range(1, 100):
-        thread = Thread(target=worker, args=(connector, country, value))
+    results = []  # 用于存储结果
+
+    def worker_with_timestamp(connector, country, value):
+        timestamp = time.perf_counter()  # 使用更高精度的时间戳
+        result = worker(connector, country, value)
+        results.append((timestamp, value, result))  # 保存时间戳、值和结果
+
+    for value in range(1, 5):
+        value1 = int(np.random.choice(np.arange(0, 10)))
+        thread = Thread(target=worker_with_timestamp, args=(connector, country, value))
         threads.append(thread)
         thread.start()
 
     for thread in threads:
         thread.join()
 
-    print("All threads completed.")
+    # 按时间戳排序结果
+    results.sort(key=lambda x: x[0])
+
+    print("All threads completed. Results:")
+    for timestamp, value, result in results:
+        print(f"Timestamp: {timestamp:.12f}, Value: {value}, Result: {result}")
 
 
 if __name__ == "__main__":

@@ -12,9 +12,9 @@ from Crypto.Cipher import ARC4
 
 
 # 加密解密算法
-ssecurity = "kvkDd7bS92VlUqtw06Hziw=="
-nonce = "LXrXTfVAj+sBuZLv"
-payload = "L2O8RE+IJn+C3fRIvZ3S69cM2/3MxXFi0A6I68MPb7P5WjIVoguinqcb+B06ORRQLByur0k0WxFTmPen03WHB72TEizV"
+ssecurity = "/FTz8LBej2KWgJZNwmL6Eg=="
+nonce = "BuDltcTWZu4BuZht"
+payload = "ry75xm4gi7xHUWII78dpuHKO/zBNRhgsuTH+tGWC+X7cnFCTaM0MAemoscGjerckd2NaYfMH2ZBbqG0W0BNlr1Jel9g="
 # response = "m91///jyY9hivddFbR/JerNQJEfSvlVp+CUf0X7WFwbikM1RjfYVW0SvP5F9E5FuPhmTYQjIujw8bK5KGZ3YgTuYO7sloVqzReSjLHpf9Q0EjBc9Dxm4c4vF2Q0rtUERDXTEgHiqgtY6vSsfIWw="
 hash_object = hashlib.sha256(base64.b64decode(ssecurity) + base64.b64decode(nonce))
 signed_nonce = base64.b64encode(hash_object.digest()).decode('utf-8')
