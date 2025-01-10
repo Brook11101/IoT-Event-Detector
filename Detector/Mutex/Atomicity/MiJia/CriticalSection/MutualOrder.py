@@ -195,7 +195,7 @@ class XiaomiCloudConnector:
         signed_nonce = self.signed_nonce(nonce)
         fields = self.generate_enc_params(url, "POST", signed_nonce, nonce, params, self._ssecurity)
         response = self._session.post(url, headers=headers, cookies=cookies, params=fields, proxies=proxies,
-                                      verify="E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\Atomicity\MiJia\Data\Desktop.pem")
+                                      verify="E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\Atomicity\MiJia\CriticalSection\Data\Desktop.pem")
         if response.status_code == 200:
             decoded = self.decrypt_rc4(self.signed_nonce(fields["_nonce"]), response.text)
             return decoded
@@ -304,7 +304,8 @@ def worker(connector, country, value):
                 print(
                     f"Request sent at: {request_timestamp:.12f}, Response received at: {response_timestamp:.12f}, Value: {value}, Result: {result}"
                 )
-                break  # 跳出循环，准备释放锁
+                return request_timestamp, response_timestamp, value, result  # 跳出循环，准备释放锁
+
             else:
                 print("Status mismatch. Retrying query_status...")
                 time.sleep(1)  # 等待 1 秒后重试
@@ -314,7 +315,7 @@ def worker(connector, country, value):
         connector.redis_lock.release_lock(lock_name)
 
 
-def crtiticalSectionTest():
+def crtiticalSectionTest(frequency, rounds):
     """
     测试函数：
     - 初始化 Redis 锁和 XiaomiCloudConnector
@@ -334,22 +335,79 @@ def crtiticalSectionTest():
         return
     print("Logged in.")
 
-    # 设置测试参数
-    frequency = 101  # 并发线程数
-    threads = []
+    all_results = {}
 
-    # 创建并启动线程
-    for value in range(1, frequency):
-        thread = Thread(target=worker, args=(connector, country, value))
-        threads.append(thread)
-        thread.start()
+    for freq in range(1, frequency + 1, 10):  # frequency: 1, 11, 21, ..., 101
+        if freq == 101:
+            freq = 100
+        all_results[freq] = {"true_count": 0, "false_count": 0}
 
-    # 等待所有线程完成
-    for thread in threads:
-        thread.join()
+        for round_num in range(rounds):  # 进行 20 轮实验
+            threads = []
+            results = []  # 用于存储每轮的结果
 
-    print("All threads completed.")
+            def worker_with_timestamp(connector, country, value):
+                request_timestamp, response_timestamp, value, result = worker(connector, country, value)
+                results.append((request_timestamp, response_timestamp, value, result))  # 保存时间戳、值和结果
+
+            for value in range(1, freq + 1):  # 规则并发数freq次
+                thread = Thread(target=worker_with_timestamp, args=(connector, country, value))
+                threads.append(thread)
+                thread.start()
+
+            for thread in threads:
+                thread.join()
+
+            # 按时间戳排序结果
+            results.sort(key=lambda x: x[0])
+
+            # 打印本轮结果
+            print("All threads completed. Results:")
+            # for request_timestamp, response_timestamp, value, result in results:
+            #     print(
+            #         f"Request Timestamp: {request_timestamp:.12f}, Response Timestamp: {response_timestamp:.12f}, Value: {value}, Result: {result}")
+
+            status = connector.query_status(country)
+            status_dict = json.loads(status.decode('utf-8'))
+            brightness = status_dict['result'][0]['value']
+            print(f"Brightness: {brightness}")
+
+            final_brightness = results[-1][2]  # 获取最后一项的 value
+            if final_brightness == brightness:
+                print("True")
+                all_results[freq]["true_count"] += 1  # 记录 true 的数量
+            else:
+                print("False")
+                all_results[freq]["false_count"] += 1  # 记录 false 的数量
+
+        # 输出当前频率实验的统计结果
+        print(f"Results for frequency = {freq}:")
+        print(f"True count: {all_results[freq]['true_count']}, False count: {all_results[freq]['false_count']}")
+        print("-" * 40)
+
+    # 绘制图形
+    frequencies = list(all_results.keys())
+    true_counts = [all_results[freq]["true_count"] for freq in frequencies]
+    false_counts = [all_results[freq]["false_count"] for freq in frequencies]
+
+    plt.figure(figsize=(10, 6))
+    width = 0.35  # 条形图的宽度
+    x = np.arange(len(frequencies))  # x轴的位置
+
+    # 绘制 true 和 false 的条形图
+    plt.bar(x - width / 2, true_counts, width, label="True", color='g')
+    plt.bar(x + width / 2, false_counts, width, label="False", color='r')
+
+    plt.xlabel('Frequency')
+    plt.ylabel('Count')
+    plt.title('True/False Count for Each Frequency')
+    plt.xticks(x, frequencies)  # 设置x轴的刻度为频率
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 
 if __name__ == "__main__":
-    crtiticalSectionTest()
+    frequency = 101  # 最大频率值 (100)
+    rounds = 20  # 每个频率进行 20 轮实验
+    crtiticalSectionTest(frequency, rounds)
