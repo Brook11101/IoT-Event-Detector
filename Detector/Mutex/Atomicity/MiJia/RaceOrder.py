@@ -12,6 +12,8 @@ from time import sleep
 
 import numpy as np
 from Crypto.Cipher import ARC4
+import matplotlib.pyplot as plt
+import numpy as np
 
 import requests
 
@@ -118,6 +120,16 @@ class XiaomiCloudConnector:
         param = {
             'data': json.dumps(
                 {'params': [{'did': '134440830', 'siid': 2, 'piid': 2, 'value': value}]}
+            ),
+        }
+        return self.execute_api_call_encrypted(url, param)
+
+    def query_status(self, country):
+        url = self.get_api_url(country) + "/miotspec/prop/get"
+        # 将嵌套的 data["data"] 转换为 JSON 字符串
+        param = {
+            'data': json.dumps(
+                {'params': [{'did': '134440830', 'siid': 2, 'piid': 2}], 'datasource': 1}
             ),
         }
         return self.execute_api_call_encrypted(url, param)
@@ -236,10 +248,19 @@ def print_entry(key, value, tab):
 
 
 def worker(connector, country, value):
+    # 记录请求发出的时间戳
+    request_timestamp = time.perf_counter()  # 发出请求的时间戳
+    # 执行请求
     result = connector.create_order(country, value)
-    print(f"Thread for value {value} completed with result: {result}")
+    # 记录请求响应后的时间戳
+    response_timestamp = time.perf_counter()  # 请求响应的时间戳
+    # 打印发出请求时间戳和响应时间戳
+    print(
+        f"Request sent at: {request_timestamp:.12f}, Response received at: {response_timestamp:.12f}, Value: {value}, Result: {result}")
+    return request_timestamp, response_timestamp, value, result
 
-def main():
+
+def crtiticalSectionTest(frequency, rounds):
     username = "2844532281"
     password = "whd123456"
     country = "cn"
@@ -249,34 +270,83 @@ def main():
     if not connector.login():
         print("Login failed.")
         return
-
     print("Logged in.")
 
-    threads = []
-    results = []  # 用于存储结果
+    all_results = {}
 
-    def worker_with_timestamp(connector, country, value):
-        timestamp = time.perf_counter()  # 使用更高精度的时间戳
-        result = worker(connector, country, value)
-        results.append((timestamp, value, result))  # 保存时间戳、值和结果
+    for freq in range(1, frequency + 1, 10):  # frequency: 1, 11, 21, ..., 101
+        if freq == 101:
+            freq = 100
+        all_results[freq] = {"true_count": 0, "false_count": 0}
 
-    for value in range(1, 5):
-        value1 = int(np.random.choice(np.arange(0, 10)))
-        thread = Thread(target=worker_with_timestamp, args=(connector, country, value))
-        threads.append(thread)
-        thread.start()
+        for round_num in range(rounds):  # 进行 20 轮实验
+            threads = []
+            results = []  # 用于存储每轮的结果
 
-    for thread in threads:
-        thread.join()
+            def worker_with_timestamp(connector, country, value):
+                request_timestamp, response_timestamp, value, result = worker(connector, country, value)
+                results.append((request_timestamp, response_timestamp, value, result))  # 保存时间戳、值和结果
 
-    # 按时间戳排序结果
-    results.sort(key=lambda x: x[0])
+            for value in range(1, freq + 1):  # 规则并发数freq次
+                thread = Thread(target=worker_with_timestamp, args=(connector, country, value))
+                threads.append(thread)
+                thread.start()
 
-    print("All threads completed. Results:")
-    for timestamp, value, result in results:
-        print(f"Timestamp: {timestamp:.12f}, Value: {value}, Result: {result}")
+            for thread in threads:
+                thread.join()
+
+            # 按时间戳排序结果
+            results.sort(key=lambda x: x[0])
+
+            # 打印本轮结果
+            print("All threads completed. Results:")
+            for request_timestamp, response_timestamp, value, result in results:
+                print(
+                    f"Request Timestamp: {request_timestamp:.12f}, Response Timestamp: {response_timestamp:.12f}, Value: {value}, Result: {result}")
+
+            sleep(5)
+
+            status = connector.query_status(country)
+            status_dict = json.loads(status.decode('utf-8'))
+            brightness = status_dict['result'][0]['value']
+            print(f"Brightness: {brightness}")
+
+            final_brightness = results[-1][2]  # 获取最后一项的 value
+            if final_brightness == brightness:
+                print("True")
+                all_results[freq]["true_count"] += 1  # 记录 true 的数量
+            else:
+                print("False")
+                all_results[freq]["false_count"] += 1  # 记录 false 的数量
+
+        # 输出当前频率实验的统计结果
+        print(f"Results for frequency = {freq}:")
+        print(f"True count: {all_results[freq]['true_count']}, False count: {all_results[freq]['false_count']}")
+        print("-" * 40)
+
+    # 绘制图形
+    frequencies = list(all_results.keys())
+    true_counts = [all_results[freq]["true_count"] for freq in frequencies]
+    false_counts = [all_results[freq]["false_count"] for freq in frequencies]
+
+    plt.figure(figsize=(10, 6))
+    width = 0.35  # 条形图的宽度
+    x = np.arange(len(frequencies))  # x轴的位置
+
+    # 绘制 true 和 false 的条形图
+    plt.bar(x - width / 2, true_counts, width, label="True", color='g')
+    plt.bar(x + width / 2, false_counts, width, label="False", color='r')
+
+    plt.xlabel('Frequency')
+    plt.ylabel('Count')
+    plt.title('True/False Count for Each Frequency')
+    plt.xticks(x, frequencies)  # 设置x轴的刻度为频率
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 
 if __name__ == "__main__":
-    main()
-
+    frequency = 101  # 最大频率值 (100)
+    rounds = 20  # 每个频率进行 20 轮实验
+    crtiticalSectionTest(frequency, rounds)
