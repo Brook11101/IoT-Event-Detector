@@ -1,5 +1,4 @@
 import base64
-import gzip
 import hashlib
 import hmac
 import json
@@ -13,17 +12,53 @@ from time import sleep
 import numpy as np
 from Crypto.Cipher import ARC4
 import matplotlib.pyplot as plt
-import numpy as np
-
 import requests
 
 if platform != "win32":
     import readline
 
 
+# Redis 分布式锁封装
+class RedisLock:
+    def __init__(self, host='localhost', port=6379, password=None):
+        """
+        初始化 Redis 连接
+        """
+        import redis
+        self.client = redis.StrictRedis(
+            host=host,
+            port=port,
+            password=password,
+            decode_responses=True  # 自动将 Redis 的二进制数据解码为字符串
+        )
+
+    def acquire_lock(self, lock_name, retry_interval=0.1):
+        """
+        不断尝试获取分布式锁（没有超时时间）
+        :param lock_name: 锁的名称（键）
+        :param retry_interval: 每次重试的间隔时间（秒）
+        :return: True（获取成功）
+        """
+        while True:
+            result = self.client.set(lock_name, "locked", nx=True)  # 不设置过期时间
+            if result:
+                print(f"Lock acquired: {lock_name}")
+                return True
+            # print(f"Failed to acquire lock: {lock_name}, retrying...")
+            time.sleep(retry_interval)
+
+    def release_lock(self, lock_name):
+        """
+        释放分布式锁
+        :param lock_name: 锁的名称（键）
+        """
+        self.client.delete(lock_name)
+        print(f"Lock released: {lock_name}")
+
+
 class XiaomiCloudConnector:
 
-    def __init__(self, username, password):
+    def __init__(self, username, password, redis_lock):
         self._username = username
         self._password = password
         self._agent = self.generate_agent()
@@ -37,6 +72,7 @@ class XiaomiCloudConnector:
         self._location = None
         self._code = None
         self._serviceToken = None
+        self.redis_lock = redis_lock
 
     def login_step_1(self):
         url = "https://account.xiaomi.com/pass/serviceLogin?sid=xiaomiio&_json=true"
@@ -116,7 +152,6 @@ class XiaomiCloudConnector:
 
     def create_order(self, country, value):
         url = self.get_api_url(country) + "/miotspec/prop/set"
-        # 将嵌套的 data["data"] 转换为 JSON 字符串
         param = {
             'data': json.dumps(
                 {'params': [{'did': '134440830', 'siid': 2, 'piid': 2, 'value': value}]}
@@ -126,7 +161,6 @@ class XiaomiCloudConnector:
 
     def query_status(self, country):
         url = self.get_api_url(country) + "/miotspec/prop/get"
-        # 将嵌套的 data["data"] 转换为 JSON 字符串
         param = {
             'data': json.dumps(
                 {'params': [{'did': '134440830', 'siid': 2, 'piid': 2}], 'datasource': 1}
@@ -239,105 +273,83 @@ class XiaomiCloudConnector:
 
 
 def worker(connector, country, value):
-    # 记录请求发出的时间戳
-    request_timestamp = time.perf_counter()  # 发出请求的时间戳
-    # 执行请求
-    result = connector.create_order(country, value)
-    # 记录请求响应后的时间戳
-    response_timestamp = time.perf_counter()  # 请求响应的时间戳
-    # 打印发出请求时间戳和响应时间戳
-    print(
-        f"Request sent at: {request_timestamp:.12f}, Response received at: {response_timestamp:.12f}, Value: {value}, Result: {result}")
-    return request_timestamp, response_timestamp, value, result
+    """
+    单个线程的工作逻辑：
+    - 获取分布式锁
+    - 执行 create_order
+    - 查询状态，直到状态与期望值匹配
+    - 释放分布式锁
+    """
+    lock_name = "lock:yeelight_bulb"
+
+    # 获取分布式锁
+    connector.redis_lock.acquire_lock(lock_name)
+
+    try:
+        # 记录请求发出的时间戳
+        request_timestamp = time.perf_counter()  # 发出请求的时间戳
+        # 执行请求
+        result = connector.create_order(country, value)
+        # 循环检查状态，直到状态与发送的 value 匹配
+        while True:
+            status = connector.query_status(country)
+            status_dict = json.loads(status.decode('utf-8'))
+            brightness = status_dict['result'][0]['value']
+            print(f"Queried brightness: {brightness}, Expected value: {value}")
+            if str(brightness) == str(value):  # 如果状态与发送的 value 一致
+                print("Critical Section Kept. Releasing lock...")
+                # 记录请求响应后的时间戳
+                response_timestamp = time.perf_counter()  # 请求响应的时间戳
+                # 打印发出请求时间戳和响应时间戳
+                print(
+                    f"Request sent at: {request_timestamp:.12f}, Response received at: {response_timestamp:.12f}, Value: {value}, Result: {result}"
+                )
+                break  # 跳出循环，准备释放锁
+            else:
+                print("Status mismatch. Retrying query_status...")
+                time.sleep(1)  # 等待 1 秒后重试
+
+    finally:
+        # 释放分布式锁
+        connector.redis_lock.release_lock(lock_name)
 
 
-def crtiticalSectionTest(frequency, rounds):
+def crtiticalSectionTest():
+    """
+    测试函数：
+    - 初始化 Redis 锁和 XiaomiCloudConnector
+    - 创建多个线程并发调用 worker 函数
+    """
     username = "2844532281"
     password = "whd123456"
     country = "cn"
 
-    connector = XiaomiCloudConnector(username, password)
+    # 初始化 Redis 锁和连接器
+    redis_lock = RedisLock(host='114.55.74.144', port=6379, password='whd123456')
+    connector = XiaomiCloudConnector(username, password, redis_lock)
+
     print("Logging in...")
     if not connector.login():
         print("Login failed.")
         return
     print("Logged in.")
 
-    all_results = {}
+    # 设置测试参数
+    frequency = 101  # 并发线程数
+    threads = []
 
-    for freq in range(1, frequency + 1, 10):  # frequency: 1, 11, 21, ..., 101
-        if freq == 101:
-            freq = 100
-        all_results[freq] = {"true_count": 0, "false_count": 0}
+    # 创建并启动线程
+    for value in range(1, frequency):
+        thread = Thread(target=worker, args=(connector, country, value))
+        threads.append(thread)
+        thread.start()
 
-        for round_num in range(rounds):  # 进行 20 轮实验
-            threads = []
-            results = []  # 用于存储每轮的结果
+    # 等待所有线程完成
+    for thread in threads:
+        thread.join()
 
-            def worker_with_timestamp(connector, country, value):
-                request_timestamp, response_timestamp, value, result = worker(connector, country, value)
-                results.append((request_timestamp, response_timestamp, value, result))  # 保存时间戳、值和结果
-
-            for value in range(1, freq + 1):  # 规则并发数freq次
-                thread = Thread(target=worker_with_timestamp, args=(connector, country, value))
-                threads.append(thread)
-                thread.start()
-
-            for thread in threads:
-                thread.join()
-
-            # 按时间戳排序结果
-            results.sort(key=lambda x: x[0])
-
-            # 打印本轮结果
-            print("All threads completed. Results:")
-            for request_timestamp, response_timestamp, value, result in results:
-                print(
-                    f"Request Timestamp: {request_timestamp:.12f}, Response Timestamp: {response_timestamp:.12f}, Value: {value}, Result: {result}")
-
-            sleep(5)
-
-            status = connector.query_status(country)
-            status_dict = json.loads(status.decode('utf-8'))
-            brightness = status_dict['result'][0]['value']
-            print(f"Brightness: {brightness}")
-
-            final_brightness = results[-1][2]  # 获取最后一项的 value
-            if final_brightness == brightness:
-                print("True")
-                all_results[freq]["true_count"] += 1  # 记录 true 的数量
-            else:
-                print("False")
-                all_results[freq]["false_count"] += 1  # 记录 false 的数量
-
-        # 输出当前频率实验的统计结果
-        print(f"Results for frequency = {freq}:")
-        print(f"True count: {all_results[freq]['true_count']}, False count: {all_results[freq]['false_count']}")
-        print("-" * 40)
-
-    # 绘制图形
-    frequencies = list(all_results.keys())
-    true_counts = [all_results[freq]["true_count"] for freq in frequencies]
-    false_counts = [all_results[freq]["false_count"] for freq in frequencies]
-
-    plt.figure(figsize=(10, 6))
-    width = 0.35  # 条形图的宽度
-    x = np.arange(len(frequencies))  # x轴的位置
-
-    # 绘制 true 和 false 的条形图
-    plt.bar(x - width / 2, true_counts, width, label="True", color='g')
-    plt.bar(x + width / 2, false_counts, width, label="False", color='r')
-
-    plt.xlabel('Frequency')
-    plt.ylabel('Count')
-    plt.title('True/False Count for Each Frequency')
-    plt.xticks(x, frequencies)  # 设置x轴的刻度为频率
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    print("All threads completed.")
 
 
 if __name__ == "__main__":
-    frequency = 101  # 最大频率值 (100)
-    rounds = 20  # 每个频率进行 20 轮实验
-    crtiticalSectionTest(frequency, rounds)
+    crtiticalSectionTest()
