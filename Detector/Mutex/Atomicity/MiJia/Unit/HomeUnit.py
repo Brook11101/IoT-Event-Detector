@@ -1,6 +1,6 @@
 import time
 from time import sleep
-
+import random
 import redis
 import threading
 
@@ -431,7 +431,7 @@ def apply_lock(rule, home_lock_dict, time_differences):
         elapsed_time = end_time - start_time
         print(f"Rule:  {rule['description']}    acquired all locks in {elapsed_time:.6f} seconds.")
         time_differences.append(elapsed_time)
-        sleep(2)
+        sleep(0.5)
 
     finally:
         # Step 5: 释放所有已获取的锁
@@ -462,8 +462,42 @@ def execute_rules(rounds, output_file):
             print(f"Round {round_num} completed. Average time: {avg_time:.6f} seconds.")
 
 
+# 多轮执行并记录结果
+def execute_rules_for_groups(rule_groups, rounds, output_file):
+    home_lock_dict = initLock()
+    with open(output_file, "w") as file:
+        for group_idx, rules in enumerate(rule_groups):
+            file.write(f"Group {group_idx + 1} ({len(rules)} rules):\n")
+            for round_num in range(1, rounds + 1):
+                time_differences = []
+                threads = []
+                for rule in rules:
+                    thread = threading.Thread(target=apply_lock, args=(rule, home_lock_dict, time_differences))
+                    threads.append(thread)
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+                avg_time = sum(time_differences) / len(time_differences) if time_differences else 0
+                file.write(f"  Round {round_num}: Average time to acquire locks: {avg_time:.6f} seconds\n")
+            file.write("\n")
+
+
 
 if __name__ == "__main__":
+    all_rules = ldm + whd + wzf + zxh + zyk
+    labeled_rules = add_lock_labels_to_rules(all_rules)
+    random.seed(42)
+
+    rule_groups = [
+        random.sample(labeled_rules, 10),
+        random.sample(labeled_rules, 20),
+        random.sample(labeled_rules, 40),
+        random.sample(labeled_rules, 60),
+        random.sample(labeled_rules, 80),
+        labeled_rules  # 全部规则
+    ]
+
     rounds = 20
-    output_path = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data\\home_lock_"+str(rounds)+".txt"
-    execute_rules(rounds, output_file=output_path)
+    output_path = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data\\home_lock_groups.txt"
+    execute_rules_for_groups(rule_groups, rounds, output_file=output_path)
+
