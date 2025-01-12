@@ -513,6 +513,8 @@ def execute_rules_for_groups(connector, rule_groups, rounds, base_output_dir):
                     threads.append(thread)
                     thread.start()
 
+                print(f"当前的活动线程数量: {threading.active_count()}")
+
                 for thread in threads:
                     thread.join()
 

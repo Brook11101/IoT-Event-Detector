@@ -494,7 +494,7 @@ def execute_rules_for_groups(connector, rule_groups, rounds, base_output_dir):
     device_type_lock_dict = initLock()
     for group_idx, rules in enumerate(rule_groups):
         group_size = len(rules)
-        output_file = f"{base_output_dir}/device_name_lock_groups_{group_size}.txt"
+        output_file = f"{base_output_dir}/device_type_lock_groups_{group_size}.txt"
 
         with open(output_file, "w") as file:
             for round_num in range(1, rounds + 1):
@@ -506,6 +506,8 @@ def execute_rules_for_groups(connector, rule_groups, rounds, base_output_dir):
                                               args=(connector, rule, device_type_lock_dict, time_differences))
                     threads.append(thread)
                     thread.start()
+
+                print(f"当前的活动线程数量: {threading.active_count()}")
 
                 for thread in threads:
                     thread.join()
