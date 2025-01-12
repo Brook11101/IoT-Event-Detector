@@ -7,6 +7,7 @@ from time import sleep
 import redis
 from ExecuteOrder import XiaomiCloudConnector
 
+
 class RedisMutexLock:
     def __init__(self, client, lock_name):
         """
@@ -279,6 +280,8 @@ zyk = [
      "description": "if door opened(5), open the lamps(12,13,14,15,16)", "triggerType": 3},
     {"score": 5, "Trigger": ["MijiaCurtain1", 0], "Condition": [], "Action": [["MijiaCurtain2", 0]],
      "description": "if Curtain(1) open ,then Curtain(2) open", "triggerType": 1},
+    {"score": 5, "Trigger": ["MijiaCurtain1", 1], "Condition": [], "Action": [["MijiaCurtain2", 1]],
+     "description": "if Curtain(1) close ,then Curtain(2) close", "triggerType": 1},
     {"score": 4, "Trigger": ["SmartThingsDoorSensor", 2], "Condition": [],
      "Action": [["YeelightCeilingLamp1", 0], ["YeelightCeilingLamp2", 0], ["YeelightCeilingLamp3", 0],
                 ["YeelightCeilingLamp5", 0], ["YeelightCeilingLamp6", 0]],
@@ -320,6 +323,13 @@ zyk = [
      "description": "if iRobot Roomba(7) Job Complete ,then Wemo Smart Plug（17）Turn off", "triggerType": 1},
     {"score": 1, "Trigger": ["YeelightBulb", 0], "Condition": [], "Action": [["MijiaCurtain1", 0]],
      "description": "When turn on the bulb, please close the curtain.", "triggerType": 1},
+    {"score": 1, "Trigger": ["YeelightBulb", 1], "Condition": [], "Action": [["MijiaCurtain1", 1]],
+     "description": "When turn off the bulb, please open the curtain.", "triggerType": 1},
+    {"score": 1, "Trigger": ["NetatmoWeatherStation", 5], "Condition": [], "Action": [["MijiaPurifier", 1]],
+     "description": "If Weather Station(11) detects rain stop, turn off Purifier(22)", "triggerType": 3},
+    {"score": 3, "Trigger": ["RingDoorbell", 2], "Condition": [], "Action": [["MijiaProjector", 0]],
+     "description": "If Doorbell(6) rings, mute Projector (23)", "triggerType": 3},
+
 ]
 
 device_type_mapping = {
@@ -482,23 +492,34 @@ def execute_rules(connector, rounds, output_file):
 
 
 # 多轮执行并记录结果
-def execute_rules_for_groups(connector, rule_groups, rounds, output_file):
+def execute_rules_for_groups(connector, rule_groups, rounds, base_output_dir):
+    """
+    Execute rules for multiple groups and save results into separate files.
+    Each group will have its own file based on its size.
+    """
     device_name_lock_dict = initLock()
-    with open(output_file, "w") as file:
-        for group_idx, rules in enumerate(rule_groups):
+    for group_idx, rules in enumerate(rule_groups):
+        group_size = len(rules)
+        output_file = f"{base_output_dir}/device_name_lock_groups_{group_size}.txt"
+
+        with open(output_file, "w") as file:
             for round_num in range(1, rounds + 1):
                 time_differences = []
                 threads = []
+
                 for rule in rules:
                     thread = threading.Thread(target=apply_lock,
                                               args=(connector, rule, device_name_lock_dict, time_differences))
                     threads.append(thread)
                     thread.start()
+
                 for thread in threads:
                     thread.join()
+
                 avg_time = sum(time_differences) / len(time_differences) if time_differences else 0
                 file.write(f"{avg_time:.6f}\n")
-            file.write("\n")
+                print(
+                    f"Group {group_idx + 1} - Size {group_size} - Round {round_num} completed. Average time: {avg_time:.6f} seconds.")
 
 
 if __name__ == "__main__":
@@ -507,7 +528,6 @@ if __name__ == "__main__":
     # 规则分组
     random.seed(42)
     rule_groups = [
-        random.sample(labeled_rules, 10),
         random.sample(labeled_rules, 20),
         random.sample(labeled_rules, 40),
         random.sample(labeled_rules, 60),
@@ -516,16 +536,16 @@ if __name__ == "__main__":
     ]
 
     rounds = 20
-    output_path = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data\\device_name_lock_groups.txt"
+    output_path = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data"
 
     username = "2844532281"
     password = "whd123456"
 
-    connector =  XiaomiCloudConnector(username, password)
+    connector = XiaomiCloudConnector(username, password)
     print("Logging in...")
     logged = connector.login()
     if logged:
-        print("ok")
+        print("Login successful.")
         execute_rules_for_groups(connector, rule_groups, rounds, output_file=output_path)
     else:
         print("Unable to log in.")
