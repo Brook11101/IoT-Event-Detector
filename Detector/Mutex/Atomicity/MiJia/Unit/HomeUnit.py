@@ -3,6 +3,7 @@ from time import sleep
 import random
 import redis
 import threading
+from ExecuteOrder import XiaomiCloudConnector
 
 
 class RedisMutexLock:
@@ -30,6 +31,7 @@ class RedisMutexLock:
         """
         self.client.delete(self.lock_name)
         print(f"Thread {threading.get_ident()} released lock: {self.lock_name}")
+
 
 def initLock():
     client = redis.StrictRedis(host="114.55.74.144", port=6379, password='whd123456', decode_responses=True)
@@ -276,6 +278,8 @@ zyk = [
      "description": "if door opened(5), open the lamps(12,13,14,15,16)", "triggerType": 3},
     {"score": 5, "Trigger": ["MijiaCurtain1", 0], "Condition": [], "Action": [["MijiaCurtain2", 0]],
      "description": "if Curtain(1) open ,then Curtain(2) open", "triggerType": 1},
+    {"score": 5, "Trigger": ["MijiaCurtain1", 1], "Condition": [], "Action": [["MijiaCurtain2", 1]],
+     "description": "if Curtain(1) close ,then Curtain(2) close", "triggerType": 1},
     {"score": 4, "Trigger": ["SmartThingsDoorSensor", 2], "Condition": [],
      "Action": [["YeelightCeilingLamp1", 0], ["YeelightCeilingLamp2", 0], ["YeelightCeilingLamp3", 0],
                 ["YeelightCeilingLamp5", 0], ["YeelightCeilingLamp6", 0]],
@@ -317,6 +321,13 @@ zyk = [
      "description": "if iRobot Roomba(7) Job Complete ,then Wemo Smart Plug（17）Turn off", "triggerType": 1},
     {"score": 1, "Trigger": ["YeelightBulb", 0], "Condition": [], "Action": [["MijiaCurtain1", 0]],
      "description": "When turn on the bulb, please close the curtain.", "triggerType": 1},
+    {"score": 1, "Trigger": ["YeelightBulb", 1], "Condition": [], "Action": [["MijiaCurtain1", 1]],
+     "description": "When turn off the bulb, please open the curtain.", "triggerType": 1},
+    {"score": 1, "Trigger": ["NetatmoWeatherStation", 5], "Condition": [], "Action": [["MijiaPurifier", 1]],
+     "description": "If Weather Station(11) detects rain stop, turn off Purifier(22)", "triggerType": 3},
+    {"score": 3, "Trigger": ["RingDoorbell", 2], "Condition": [], "Action": [["MijiaProjector", 0]],
+     "description": "If Doorbell(6) rings, mute Projector (23)", "triggerType": 3},
+
 ]
 
 device_type_mapping = {
@@ -371,7 +382,6 @@ DeviceName = ["Smoke", "Location", "WaterLeakage", "MijiaCurtain1", "MijiaCurtai
               "SmartLifePIRmotionsensor3", "MijiaPurifier", "MijiaProjector", "Notification"]
 
 
-
 # 带标签的规则生成函数
 def add_lock_labels_to_rules(rules):
     # 统计规则分配到的房间，用于均匀分配
@@ -412,7 +422,7 @@ def add_lock_labels_to_rules(rules):
 
 
 # 模拟规则执行的线程函数
-def apply_lock(rule, home_lock_dict, time_differences):
+def apply_lock(connector, rule, home_lock_dict, time_differences):
     # Step 1: 获取需要申请的锁并排序
     locks_to_acquire = sorted(rule["Home"])  # 确保按字典序排序
 
@@ -431,15 +441,31 @@ def apply_lock(rule, home_lock_dict, time_differences):
         elapsed_time = end_time - start_time
         print(f"Rule:  {rule['description']}    acquired all locks in {elapsed_time:.6f} seconds.")
         time_differences.append(elapsed_time)
-        sleep(0.5)
+
+        # 真实执行规则
+        # value = str(random.randint(0, 100))
+        # print(value)
+        # response = connector.create_order("cn", value)
+        # while True:
+        #     status = connector.query_status("cn")
+        #     print(status)
+        #     status_dict = json.loads(status.decode('utf-8'))
+        #     brightness = status_dict['result'][0]['value']
+        #     if str(brightness) == str(value):  # 如果状态与发送的 value 一致
+        #         print(f"Rule:  {rule['description']}   execute over.")
+        #         break
+
+        # 模拟执行规则占用时间
+        sleep(random.uniform(1.5, 2.0))
 
     finally:
         # Step 5: 释放所有已获取的锁
         for lock_name in acquired_locks:
             home_lock_dict[lock_name].release()
 
+
 # 多轮执行并保存结果
-def execute_rules(rounds, output_file):
+def execute_rules(connector, rounds, output_file):
     all_rules = ldm + whd + wzf + zxh + zyk
     labeled_rules = add_lock_labels_to_rules(all_rules)
     home_lock_dict = initLock()
@@ -450,7 +476,7 @@ def execute_rules(rounds, output_file):
             threads = []
 
             for rule in labeled_rules:
-                thread = threading.Thread(target=apply_lock, args=(rule, home_lock_dict, time_differences))
+                thread = threading.Thread(target=apply_lock, args=(connector, rule, home_lock_dict, time_differences))
                 threads.append(thread)
                 thread.start()
 
@@ -463,25 +489,30 @@ def execute_rules(rounds, output_file):
 
 
 # 多轮执行并记录结果
-def execute_rules_for_groups(rule_groups, rounds, output_file):
+def execute_rules_for_groups(connector, rule_groups, rounds, base_output_dir):
     home_lock_dict = initLock()
-    with open(output_file, "w") as file:
-        for group_idx, rules in enumerate(rule_groups):
-            # file.write(f"Group {group_idx + 1} ({len(rules)} rules):\n")
+    for group_idx, rules in enumerate(rule_groups):
+        group_size = len(rules)
+        output_file = f"{base_output_dir}/home_lock_groups_{group_size}.txt"
+
+        with open(output_file, "w") as file:
             for round_num in range(1, rounds + 1):
                 time_differences = []
                 threads = []
+
                 for rule in rules:
-                    thread = threading.Thread(target=apply_lock, args=(rule, home_lock_dict, time_differences))
+                    thread = threading.Thread(target=apply_lock,
+                                              args=(connector, rule, home_lock_dict, time_differences))
                     threads.append(thread)
                     thread.start()
+
                 for thread in threads:
                     thread.join()
-                avg_time = sum(time_differences) / len(time_differences) if time_differences else 0
-                # file.write(f"  Round {round_num}: Average time to acquire locks: {avg_time:.6f} seconds\n")
-                file.write(f"{avg_time:.6f}\n")
-            file.write("\n")
 
+                avg_time = sum(time_differences) / len(time_differences) if time_differences else 0
+                file.write(f"{avg_time:.6f}\n")
+                print(
+                    f"Group {group_idx + 1} - Size {group_size} - Round {round_num} completed. Average time: {avg_time:.6f} seconds.")
 
 
 if __name__ == "__main__":
@@ -490,7 +521,6 @@ if __name__ == "__main__":
     random.seed(42)
 
     rule_groups = [
-        random.sample(labeled_rules, 10),
         random.sample(labeled_rules, 20),
         random.sample(labeled_rules, 40),
         random.sample(labeled_rules, 60),
@@ -499,6 +529,16 @@ if __name__ == "__main__":
     ]
 
     rounds = 20
-    output_path = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data\\home_lock_groups.txt"
-    execute_rules_for_groups(rule_groups, rounds, output_file=output_path)
+    output_base_dir = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data"
 
+    username = "2844532281"
+    password = "whd123456"
+
+    connector = XiaomiCloudConnector(username, password)
+    print("Logging in...")
+    logged = connector.login()
+    if logged:
+        print("Login successful.")
+        execute_rules_for_groups(connector, rule_groups, rounds, output_base_dir)
+    else:
+        print("Unable to log in.")
