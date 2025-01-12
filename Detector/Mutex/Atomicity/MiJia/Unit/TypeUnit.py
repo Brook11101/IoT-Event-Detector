@@ -361,7 +361,7 @@ device_type_mapping = {
 }
 
 Home = ["home"]
-Room = ["room1", "room2", "room3"]
+Room = ["room1", "room2", "room3","room4","room5","room6"]
 DeviceType = [
     "bulb",  # 灯具
     "sensor",  # 传感器
@@ -521,11 +521,19 @@ def execute_rules_for_groups(connector, rule_groups, rounds, base_output_dir):
 if __name__ == "__main__":
     all_rules = ldm + whd + wzf + zxh + zyk
     labeled_rules = add_lock_labels_to_rules(all_rules)
-    random.seed(42)
+    random.seed(32)
 
     rule_groups = [
+        random.sample(labeled_rules, 5),
+        random.sample(labeled_rules, 10),
+        random.sample(labeled_rules, 15),
         random.sample(labeled_rules, 20),
+        random.sample(labeled_rules, 25),
+        random.sample(labeled_rules, 30),
+        random.sample(labeled_rules, 35),
         random.sample(labeled_rules, 40),
+        random.sample(labeled_rules, 45),
+        random.sample(labeled_rules, 50),
         random.sample(labeled_rules, 60),
         random.sample(labeled_rules, 80),
         labeled_rules  # 全部规则
