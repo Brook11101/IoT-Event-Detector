@@ -466,7 +466,7 @@ def execute_rules_for_groups(rule_groups, rounds, output_file):
     device_type_lock_dict = initLock()
     with open(output_file, "w") as file:
         for group_idx, rules in enumerate(rule_groups):
-            file.write(f"Group {group_idx + 1} ({len(rules)} rules):\n")
+            # file.write(f"Group {group_idx + 1} ({len(rules)} rules):\n")
             for round_num in range(1, rounds + 1):
                 time_differences = []
                 threads = []
@@ -477,7 +477,8 @@ def execute_rules_for_groups(rule_groups, rounds, output_file):
                 for thread in threads:
                     thread.join()
                 avg_time = sum(time_differences) / len(time_differences) if time_differences else 0
-                file.write(f"  Round {round_num}: Average time to acquire locks: {avg_time:.6f} seconds\n")
+                # file.write(f"  Round {round_num}: Average time to acquire locks: {avg_time:.6f} seconds\n")
+                file.write(f"{avg_time:.6f}\n")
             file.write("\n")
 
 

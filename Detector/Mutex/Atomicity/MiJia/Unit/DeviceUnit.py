@@ -1,10 +1,11 @@
+import json
+import random
+import threading
 import time
 from time import sleep
-import random
 
 import redis
-import threading
-
+from ExecuteOrder import XiaomiCloudConnector
 
 class RedisMutexLock:
     def __init__(self, client, lock_name):
@@ -413,7 +414,7 @@ def add_lock_labels_to_rules(rules):
 
 
 # 模拟规则执行的线程函数
-def apply_lock(rule, device_name_lock_dict, time_differences):
+def apply_lock(connector, rule, device_name_lock_dict, time_differences):
     # Step 1: 获取需要申请的锁并排序
     locks_to_acquire = sorted(rule["DeviceName"])  # 确保按字典序排序
 
@@ -432,7 +433,22 @@ def apply_lock(rule, device_name_lock_dict, time_differences):
         elapsed_time = end_time - start_time
         print(f"Rule:  {rule['description']}    acquired all locks in {elapsed_time:.6f} seconds.")
         time_differences.append(elapsed_time)
-        sleep(0.5)
+
+        # 真实执行规则
+        # value = str(random.randint(0, 100))
+        # print(value)
+        # response = connector.create_order("cn", value)
+        # while True:
+        #     status = connector.query_status("cn")
+        #     print(status)
+        #     status_dict = json.loads(status.decode('utf-8'))
+        #     brightness = status_dict['result'][0]['value']
+        #     if str(brightness) == str(value):  # 如果状态与发送的 value 一致
+        #         print(f"Rule:  {rule['description']}   execute over.")
+        #         break
+
+        # 模拟执行规则占用时间
+        sleep(random.uniform(1.5, 2.0))
 
     finally:
         # Step 5: 释放所有已获取的锁
@@ -441,7 +457,7 @@ def apply_lock(rule, device_name_lock_dict, time_differences):
 
 
 # 多轮执行并保存结果
-def execute_rules(rounds, output_file):
+def execute_rules(connector, rounds, output_file):
     all_rules = ldm + whd + wzf + zxh + zyk
     labeled_rules = add_lock_labels_to_rules(all_rules)
     device_name_lock_dict = initLock()
@@ -452,7 +468,8 @@ def execute_rules(rounds, output_file):
             threads = []
 
             for rule in labeled_rules:
-                thread = threading.Thread(target=apply_lock, args=(rule, device_name_lock_dict, time_differences))
+                thread = threading.Thread(target=apply_lock,
+                                          args=(connector, rule, device_name_lock_dict, time_differences))
                 threads.append(thread)
                 thread.start()
 
@@ -465,30 +482,30 @@ def execute_rules(rounds, output_file):
 
 
 # 多轮执行并记录结果
-def execute_rules_for_groups(rule_groups, rounds, output_file):
+def execute_rules_for_groups(connector, rule_groups, rounds, output_file):
     device_name_lock_dict = initLock()
     with open(output_file, "w") as file:
         for group_idx, rules in enumerate(rule_groups):
-            file.write(f"Group {group_idx + 1} ({len(rules)} rules):\n")
             for round_num in range(1, rounds + 1):
                 time_differences = []
                 threads = []
                 for rule in rules:
-                    thread = threading.Thread(target=apply_lock, args=(rule, device_name_lock_dict, time_differences))
+                    thread = threading.Thread(target=apply_lock,
+                                              args=(connector, rule, device_name_lock_dict, time_differences))
                     threads.append(thread)
                     thread.start()
                 for thread in threads:
                     thread.join()
                 avg_time = sum(time_differences) / len(time_differences) if time_differences else 0
-                file.write(f"  Round {round_num}: Average time to acquire locks: {avg_time:.6f} seconds\n")
+                file.write(f"{avg_time:.6f}\n")
             file.write("\n")
 
 
 if __name__ == "__main__":
     all_rules = ldm + whd + wzf + zxh + zyk
     labeled_rules = add_lock_labels_to_rules(all_rules)
+    # 规则分组
     random.seed(42)
-
     rule_groups = [
         random.sample(labeled_rules, 10),
         random.sample(labeled_rules, 20),
@@ -500,4 +517,15 @@ if __name__ == "__main__":
 
     rounds = 20
     output_path = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data\\device_name_lock_groups.txt"
-    execute_rules_for_groups(rule_groups, rounds, output_file=output_path)
+
+    username = "2844532281"
+    password = "whd123456"
+
+    connector =  XiaomiCloudConnector(username, password)
+    print("Logging in...")
+    logged = connector.login()
+    if logged:
+        print("ok")
+        execute_rules_for_groups(connector, rule_groups, rounds, output_file=output_path)
+    else:
+        print("Unable to log in.")
