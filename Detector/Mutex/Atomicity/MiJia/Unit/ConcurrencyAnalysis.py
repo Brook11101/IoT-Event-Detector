@@ -4,13 +4,15 @@ import numpy as np
 
 # 文件路径
 base_path = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data"
-rule_count = 60
+rule_count = 30
 file_mapping = {
-    "room": "room_lock_groups_60.txt",
-    "device_type": "device_type_lock_groups_60.txt",
-    "device_name": "device_name_lock_groups_60.txt",
+    "home":"home_lock_groups_30.txt",
+    "room": "room_lock_groups_30.txt",
+    "device_type": "device_type_lock_groups_30.txt",
+    "device_name": "device_name_lock_groups_30.txt",
 }
 concurrency_levels = {
+    "home":1,
     "room": 6,
     "device_type": 10,
     "device_name": 27,

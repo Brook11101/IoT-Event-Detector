@@ -361,7 +361,7 @@ device_type_mapping = {
 }
 
 Home = ["home"]
-Room = ["room1", "room2", "room3","room4","room5","room6"]
+Room = ["room1", "room2", "room3", "room4", "room5", "room6"]
 DeviceType = [
     "bulb",  # 灯具
     "sensor",  # 传感器
@@ -521,23 +521,20 @@ def execute_rules_for_groups(connector, rule_groups, rounds, base_output_dir):
 if __name__ == "__main__":
     all_rules = ldm + whd + wzf + zxh + zyk
     labeled_rules = add_lock_labels_to_rules(all_rules)
+    # 规则分组
     random.seed(32)
+    rule_groups = []
+    remaining_rules = labeled_rules.copy()
 
-    rule_groups = [
-        random.sample(labeled_rules, 5),
-        random.sample(labeled_rules, 10),
-        random.sample(labeled_rules, 15),
-        random.sample(labeled_rules, 20),
-        random.sample(labeled_rules, 25),
-        random.sample(labeled_rules, 30),
-        random.sample(labeled_rules, 35),
-        random.sample(labeled_rules, 40),
-        random.sample(labeled_rules, 45),
-        random.sample(labeled_rules, 50),
-        random.sample(labeled_rules, 60),
-        random.sample(labeled_rules, 80),
-        labeled_rules  # 全部规则
-    ]
+    # group_sizes = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 80, len(labeled_rules)]
+    group_sizes = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+    previous_group = []
+
+    for size in group_sizes:
+        current_group = random.sample(remaining_rules, size - len(previous_group))
+        previous_group += current_group
+        rule_groups.append(previous_group.copy())
+        remaining_rules = [rule for rule in remaining_rules if rule not in current_group]
 
     rounds = 20
     output_base_dir = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data"
