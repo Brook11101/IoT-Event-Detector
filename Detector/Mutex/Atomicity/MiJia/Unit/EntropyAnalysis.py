@@ -405,7 +405,6 @@ for size in group_sizes:
 # Select group size = 30
 group_size_30 = rule_groups[9]
 
-results = {}
 lock_types = {
     "home": Home,
     "room": Room,
@@ -509,9 +508,8 @@ for prefix in file_prefixes:
             avg_time = np.mean(values)
             time_values[prefix] = avg_time
 
-# 打印 rule_count=30 的平均时间
 for lock_type, avg_time in time_values.items():
-    print(f"{lock_type.capitalize()} Locks Time Value (Rule Count 20): {avg_time}")
+    print(f"{lock_type.capitalize()} Locks Time Value: {avg_time}")
 
 
 lock_types = ["home", "device_type", "device_name","room"]
