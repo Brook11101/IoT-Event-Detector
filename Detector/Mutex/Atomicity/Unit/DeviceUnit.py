@@ -1,9 +1,16 @@
+import json
+import random
+import threading
 import time
 from time import sleep
-import random
+
 import redis
-import threading
 from ExecuteOrder import XiaomiCloudConnector
+
+
+# 以设备为粒度的申请锁平均时间计算
+# 数量太大，并不合适。
+# 分割法取随机，也不合适
 
 
 class RedisMutexLock:
@@ -36,11 +43,11 @@ class RedisMutexLock:
 def initLock():
     client = redis.StrictRedis(host="114.55.74.144", port=6379, password='whd123456', decode_responses=True)
     # 创建 Redis 可重入锁字典
-    device_type_lock_dict = {}
+    device_name_lock_dict = {}
     # 遍历 Home 数组，为每个元素创建一个锁，并存储到字典中
-    for device_type_name in DeviceType:
-        device_type_lock_dict[device_type_name] = RedisMutexLock(client, device_type_name)
-    return device_type_lock_dict
+    for device_name in DeviceName:
+        device_name_lock_dict[device_name] = RedisMutexLock(client, device_name)
+    return device_name_lock_dict
 
 
 ldm = [
@@ -361,7 +368,7 @@ device_type_mapping = {
 }
 
 Home = ["home"]
-Room = ["room1", "room2", "room3", "room4", "room5", "room6"]
+Room = ["room1", "room2", "room3","room4","room5","room6"]
 DeviceType = [
     "bulb",  # 灯具
     "sensor",  # 传感器
@@ -422,9 +429,9 @@ def add_lock_labels_to_rules(rules):
 
 
 # 模拟规则执行的线程函数
-def apply_lock(connector, rule, device_type_lock_dict, time_differences):
+def apply_lock(connector, rule, device_name_lock_dict, time_differences):
     # Step 1: 获取需要申请的锁并排序
-    locks_to_acquire = sorted(rule["DeviceType"])  # 确保按字典序排序
+    locks_to_acquire = sorted(rule["DeviceName"])  # 确保按字典序排序
 
     # Step 2: 开始计时
     start_time = time.time()
@@ -433,7 +440,7 @@ def apply_lock(connector, rule, device_type_lock_dict, time_differences):
     acquired_locks = []
     try:
         for lock_name in locks_to_acquire:
-            device_type_lock_dict[lock_name].acquire()
+            device_name_lock_dict[lock_name].acquire()
             acquired_locks.append(lock_name)  # 记录已成功获取的锁
 
         # Step 4: 记录成功获取锁的时间
@@ -461,14 +468,14 @@ def apply_lock(connector, rule, device_type_lock_dict, time_differences):
     finally:
         # Step 5: 释放所有已获取的锁
         for lock_name in acquired_locks:
-            device_type_lock_dict[lock_name].release()
+            device_name_lock_dict[lock_name].release()
 
 
 # 多轮执行并保存结果
 def execute_rules(connector, rounds, output_file):
     all_rules = ldm + whd + wzf + zxh + zyk
     labeled_rules = add_lock_labels_to_rules(all_rules)
-    device_type_lock_dict = initLock()
+    device_name_lock_dict = initLock()
 
     with open(output_file, "w") as file:
         for round_num in range(1, rounds + 1):
@@ -477,7 +484,7 @@ def execute_rules(connector, rounds, output_file):
 
             for rule in labeled_rules:
                 thread = threading.Thread(target=apply_lock,
-                                          args=(connector, rule, device_type_lock_dict, time_differences))
+                                          args=(connector, rule, device_name_lock_dict, time_differences))
                 threads.append(thread)
                 thread.start()
 
@@ -491,10 +498,14 @@ def execute_rules(connector, rounds, output_file):
 
 # 多轮执行并记录结果
 def execute_rules_for_groups(connector, rule_groups, rounds, base_output_dir):
-    device_type_lock_dict = initLock()
+    """
+    Execute rules for multiple groups and save results into separate files.
+    Each group will have its own file based on its size.
+    """
+    device_name_lock_dict = initLock()
     for group_idx, rules in enumerate(rule_groups):
         group_size = len(rules)
-        output_file = f"{base_output_dir}/device_type_lock_groups_{group_size}.txt"
+        output_file = f"{base_output_dir}/device_name_lock_groups_{group_size}.txt"
 
         with open(output_file, "w") as file:
             for round_num in range(1, rounds + 1):
@@ -503,7 +514,7 @@ def execute_rules_for_groups(connector, rule_groups, rounds, base_output_dir):
 
                 for rule in rules:
                     thread = threading.Thread(target=apply_lock,
-                                              args=(connector, rule, device_type_lock_dict, time_differences))
+                                              args=(connector, rule, device_name_lock_dict, time_differences))
                     threads.append(thread)
                     thread.start()
 
@@ -537,7 +548,7 @@ if __name__ == "__main__":
         remaining_rules = [rule for rule in remaining_rules if rule not in current_group]
 
     rounds = 20
-    output_base_dir = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data"
+    output_base_dir = r"/Detector/Mutex/Atomicity/Unit/Data"
 
     username = "2844532281"
     password = "whd123456"
@@ -547,6 +558,6 @@ if __name__ == "__main__":
     logged = connector.login()
     if logged:
         print("Login successful.")
-        execute_rules_for_groups(connector, rule_groups, rounds, output_base_dir)
+        execute_rules_for_groups(connector, rule_groups, rounds,  output_base_dir)
     else:
         print("Unable to log in.")

@@ -21,6 +21,10 @@ if platform != "win32":
     import readline
 
 
+
+# 功能性的对照实验，说明MiJia服务器在接收高并发请求的时候没有做到互斥性处理
+# 但是没啥用，mutex的功能性不通过这一点来证明
+
 class XiaomiCloudConnector:
 
     def __init__(self, username, password):

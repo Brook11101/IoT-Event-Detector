@@ -1,46 +1,47 @@
-import time
-from time import sleep
 import random
-import redis
-import threading
-from ExecuteOrder import XiaomiCloudConnector
+import numpy as np
+from math import log2
+import os
+import matplotlib.pyplot as plt
 
 
-class RedisMutexLock:
-    def __init__(self, client, lock_name):
-        """
-        初始化 Redis 可重入锁
-        :param client: Redis 客户端连接对象
-        :param lock_name: 锁的名称
-        """
-        self.client = client
-        self.lock_name = lock_name
-
-    def acquire(self):
-        """
-        获取锁，持续重试直到成功。
-        """
-        while True:
-            if self.client.set(self.lock_name, "locked", nx=True):
-                print(f"Thread {threading.get_ident()} acquired lock: {self.lock_name}")
-                return True
-
-    def release(self):
-        """
-        释放锁。
-        """
-        self.client.delete(self.lock_name)
-        print(f"Thread {threading.get_ident()} released lock: {self.lock_name}")
+# 用来验证归一化熵对于互斥锁申请时间影响的，但是没啥用
+# 废弃了，唉，他妈的
 
 
-def initLock():
-    client = redis.StrictRedis(host="114.55.74.144", port=6379, password='whd123456', decode_responses=True)
-    # 创建 Redis 可重入锁字典
-    home_lock_dict = {}
-    # 遍历 Home 数组，为每个元素创建一个锁，并存储到字典中
-    for home_name in Home:
-        home_lock_dict[home_name] = RedisMutexLock(client, home_name)
-    return home_lock_dict
+# 带标签的规则生成函数
+def add_lock_labels_to_rules(rules):
+    room_assignments = {room: 0 for room in Room}
+
+    labeled_rules = []
+    for rule in rules:
+        home_label = Home
+        room_label = min(room_assignments, key=room_assignments.get)
+        room_assignments[room_label] += 1
+
+        device_types = []
+        device_names = []
+        for action in rule["Action"]:
+            device_name = action[0]
+            if device_name in device_type_mapping:
+                device_types.append(device_type_mapping[device_name])
+                device_names.append(device_name)
+
+        device_types = list(set(device_types))
+        device_names = list(set(device_names))
+
+        labeled_rule = rule.copy()
+        labeled_rule["Home"] = home_label
+        labeled_rule["Room"] = [room_label]
+        labeled_rule["DeviceType"] = device_types
+        labeled_rule["DeviceName"] = device_names
+
+        labeled_rules.append(labeled_rule)
+
+    return labeled_rules
+
+# 规则集合
+
 
 
 ldm = [
@@ -361,191 +362,144 @@ device_type_mapping = {
 }
 
 Home = ["home"]
-Room = ["room1", "room2", "room3","room4","room5","room6"]
+Room = ["room1", "room2", "room3", "room4", "room5", "room6"]
 DeviceType = [
-    "bulb",  # 灯具
-    "sensor",  # 传感器
-    "lock",  # 门锁
-    "plug",  # 智能插头
-    "appliance",  # 智能家电
-    "camera",  # 摄像头
-    "voice_assistance",  # 语音助手
-    "curtain",  # 智能窗帘
-    "notification",  # 通知设备
-    "weather_station"  # 天气设备
+    "bulb", "sensor", "lock", "plug", "appliance", "camera",
+    "voice_assistance", "curtain", "notification", "weather_station"
 ]
-DeviceName = ["Smoke", "Location", "WaterLeakage", "MijiaCurtain1", "MijiaCurtain2", "YeelightBulb",
-              "SmartThingsDoorSensor", "MijiaDoorLock", "RingDoorbell", "iRobotRoomba", "AlexaVoiceAssistance",
-              "PhilipsHueLight", "MideaAirConditioner", "NetatmoWeatherStation", "YeelightCeilingLamp1",
-              "YeelightCeilingLamp2", "YeelightCeilingLamp3", "YeelightCeilingLamp5", "YeelightCeilingLamp6",
-              "WemoSmartPlug", "WyzeCamera", "SmartLifePIRmotionsensor1", "SmartLifePIRmotionsensor2",
-              "SmartLifePIRmotionsensor3", "MijiaPurifier", "MijiaProjector", "Notification"]
+DeviceName = list(device_type_mapping.keys())
 
+all_rules = ldm + whd + wzf + zxh + zyk
+labeled_rules = add_lock_labels_to_rules(all_rules)
 
-# 带标签的规则生成函数
-def add_lock_labels_to_rules(rules):
-    # 统计规则分配到的房间，用于均匀分配
-    room_assignments = {room: 0 for room in Room}
+# Group rules by size
+random.seed(32)
+rule_groups = []
+remaining_rules = labeled_rules.copy()
 
-    labeled_rules = []
-    for rule in rules:
-        # Step 1: Home 标签
-        home_label = Home
+group_sizes = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+previous_group = []
 
-        # Step 2: Room 标签 - 随机均匀分配
-        room_label = min(room_assignments, key=room_assignments.get)
-        room_assignments[room_label] += 1
+for size in group_sizes:
+    current_group = random.sample(remaining_rules, size - len(previous_group))
+    previous_group += current_group
+    rule_groups.append(previous_group.copy())
+    remaining_rules = [rule for rule in remaining_rules if rule not in current_group]
 
-        # Step 3: DeviceType 标签
-        device_types = []
-        device_names = []
-        for action in rule["Action"]:
-            device_name = action[0]
-            if device_name in device_type_mapping:
-                device_types.append(device_type_mapping[device_name])
-                device_names.append(device_name)
+# 计算函数
+def calculate_lock_uniformity(lock_usage):
+    lock_usage = np.array(lock_usage)
+    total_usage = lock_usage.sum()
+    num_locks = len(lock_usage)
 
-        # 去重，确保唯一性
-        device_types = list(set(device_types))
-        device_names = list(set(device_names))
+    if total_usage == 0 or num_locks == 0:
+        return {"Normalized Entropy": 0}
 
-        # Step 4: 添加标签到规则
-        labeled_rule = rule.copy()
-        labeled_rule["Home"] = home_label
-        labeled_rule["Room"] = [room_label]
-        labeled_rule["DeviceType"] = device_types
-        labeled_rule["DeviceName"] = device_names
+    probabilities = lock_usage / total_usage
+    entropy = -np.sum([p * log2(p) for p in probabilities if p > 0])
+    max_entropy = log2(num_locks)
+    normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0
 
-        labeled_rules.append(labeled_rule)
+    return {"Normalized Entropy": normalized_entropy}
 
-    return labeled_rules
+def count_lock_usage(group, locks, lock_type):
+    lock_usage = {lock: 0 for lock in locks}
+    for rule in group:
+        if lock_type == "device_type":
+            used_locks = rule.get("DeviceType", [])
+        elif lock_type == "device_name":
+            used_locks = rule.get("DeviceName", [])
+        elif lock_type == "room":
+            used_locks = rule.get("Room", [])
+        else:
+            used_locks = []
 
+        for lock in used_locks:
+            if lock in lock_usage:
+                lock_usage[lock] += 1
 
-# 模拟规则执行的线程函数
-def apply_lock(connector, rule, home_lock_dict, time_differences):
-    # Step 1: 获取需要申请的锁并排序
-    locks_to_acquire = sorted(rule["Home"])  # 确保按字典序排序
+    return list(lock_usage.values())
 
-    # Step 2: 开始计时
-    start_time = time.time()
+# 初始化数据存储
+device_type_entropies = []
+device_name_entropies = []
+room_entropies = []
 
-    # Step 3: 按顺序申请所有锁
-    acquired_locks = []
-    try:
-        for lock_name in locks_to_acquire:
-            home_lock_dict[lock_name].acquire()
-            acquired_locks.append(lock_name)  # 记录已成功获取的锁
+device_type_times = []
+device_name_times = []
+room_times = []
+# 路径配置
+base_path = r"/Detector/Mutex/Atomicity/Unit/Data"
 
-        # Step 4: 记录成功获取锁的时间
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"Rule:  {rule['description']}    acquired all locks in {elapsed_time:.6f} seconds.")
-        time_differences.append(elapsed_time)
+for group, size in zip(rule_groups, group_sizes):
+    # 计算 device_type 的归一化熵
+    device_type_usage = count_lock_usage(group, DeviceType, "device_type")
+    device_type_metrics = calculate_lock_uniformity(device_type_usage)
+    device_type_entropies.append(device_type_metrics["Normalized Entropy"])
 
-        # 真实执行规则
-        # value = str(random.randint(0, 100))
-        # print(value)
-        # response = connector.create_order("cn", value)
-        # while True:
-        #     status = connector.query_status("cn")
-        #     print(status)
-        #     status_dict = json.loads(status.decode('utf-8'))
-        #     brightness = status_dict['result'][0]['value']
-        #     if str(brightness) == str(value):  # 如果状态与发送的 value 一致
-        #         print(f"Rule:  {rule['description']}   execute over.")
-        #         break
+    # # 计算 device_name 的归一化熵
+    # device_name_usage = count_lock_usage(group, DeviceName, "device_name")
+    # device_name_metrics = calculate_lock_uniformity(device_name_usage)
+    # device_name_entropies.append(device_name_metrics["Normalized Entropy"])
 
-        # 模拟执行规则占用时间
-        sleep(random.uniform(1.5, 2.0))
+    # 计算 room 的归一化熵
+    room_usage = count_lock_usage(group, Room, "room")
+    room_metrics = calculate_lock_uniformity(room_usage)
+    room_entropies.append(room_metrics["Normalized Entropy"])
 
-    finally:
-        # Step 5: 释放所有已获取的锁
-        for lock_name in acquired_locks:
-            home_lock_dict[lock_name].release()
+    # 加载 device_type 和 device_name 平均时间
+    device_type_file = os.path.join(base_path, f"device_type_lock_groups_{size}.txt")
+    device_name_file = os.path.join(base_path, f"device_name_lock_groups_{size}.txt")
+    room_file = os.path.join(base_path, f"room_lock_groups_{size}.txt")
 
-
-# 多轮执行并保存结果
-def execute_rules(connector, rounds, output_file):
-    all_rules = ldm + whd + wzf + zxh + zyk
-    labeled_rules = add_lock_labels_to_rules(all_rules)
-    home_lock_dict = initLock()
-
-    with open(output_file, "w") as file:
-        for round_num in range(1, rounds + 1):
-            time_differences = []
-            threads = []
-
-            for rule in labeled_rules:
-                thread = threading.Thread(target=apply_lock, args=(connector, rule, home_lock_dict, time_differences))
-                threads.append(thread)
-                thread.start()
-
-            for thread in threads:
-                thread.join()
-
-            avg_time = sum(time_differences) / len(time_differences) if time_differences else 0
-            file.write(f"Round {round_num}: Average time to acquire locks: {avg_time:.6f} seconds\n")
-            print(f"Round {round_num} completed. Average time: {avg_time:.6f} seconds.")
-
-
-# 多轮执行并记录结果
-def execute_rules_for_groups(connector, rule_groups, rounds, base_output_dir):
-    home_lock_dict = initLock()
-    for group_idx, rules in enumerate(rule_groups):
-        group_size = len(rules)
-        output_file = f"{base_output_dir}/home_lock_groups_{group_size}.txt"
-
-        with open(output_file, "w") as file:
-            for round_num in range(1, rounds + 1):
-                time_differences = []
-                threads = []
-
-                for rule in rules:
-                    thread = threading.Thread(target=apply_lock,
-                                              args=(connector, rule, home_lock_dict, time_differences))
-                    threads.append(thread)
-                    thread.start()
-
-                print(f"当前的活动线程数量: {threading.active_count()}")
-
-                for thread in threads:
-                    thread.join()
-
-                avg_time = sum(time_differences) / len(time_differences) if time_differences else 0
-                file.write(f"{avg_time:.6f}\n")
-                print(
-                    f"Group {group_idx + 1} - Size {group_size} - Round {round_num} completed. Average time: {avg_time:.6f} seconds.")
-
-
-if __name__ == "__main__":
-    all_rules = ldm + whd + wzf + zxh + zyk
-    labeled_rules = add_lock_labels_to_rules(all_rules)
-    # 规则分组
-    random.seed(32)
-    rule_groups = []
-    remaining_rules = labeled_rules.copy()
-
-    # group_sizes = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 80, len(labeled_rules)]
-    group_sizes = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
-    previous_group = []
-
-    for size in group_sizes:
-        current_group = random.sample(remaining_rules, size - len(previous_group))
-        previous_group += current_group
-        rule_groups.append(previous_group.copy())
-        remaining_rules = [rule for rule in remaining_rules if rule not in current_group]
-
-    rounds = 20
-    output_base_dir = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data"
-
-    username = "2844532281"
-    password = "whd123456"
-
-    connector = XiaomiCloudConnector(username, password)
-    print("Logging in...")
-    logged = connector.login()
-    if logged:
-        print("Login successful.")
-        execute_rules_for_groups(connector, rule_groups, rounds, output_base_dir)
+    if os.path.exists(device_type_file):
+        with open(device_type_file, "r") as f:
+            values = [float(line.strip()) for line in f if line.strip()]
+            device_type_times.append(np.mean(values))
     else:
-        print("Unable to log in.")
+        device_type_times.append(0)
+
+    if os.path.exists(device_name_file):
+        with open(device_name_file, "r") as f:
+            values = [float(line.strip()) for line in f if line.strip()]
+            device_name_times.append(np.mean(values))
+    else:
+        device_name_times.append(0)
+
+    if os.path.exists(room_file):
+        with open(room_file, "r") as f:
+            values = [float(line.strip()) for line in f if line.strip()]
+            room_times.append(np.mean(values))
+    else:
+        room_times.append(0)
+
+# 绘制对比图
+fig, ax1 = plt.subplots(figsize=(12, 6))
+
+# 配置颜色
+device_type_color = "red"
+room_color = "purple"
+
+# 归一化熵曲线
+ax1.set_xlabel("Number of Rules", fontsize=12)
+ax1.set_ylabel("Normalized Entropy", fontsize=12, color="tab:blue")
+ax1.plot(group_sizes, device_type_entropies, marker="o", linestyle="-", color=device_type_color, label="Device Type Entropy")
+ax1.plot(group_sizes, room_entropies, marker="s", linestyle="-", color=room_color, label="Room Entropy")
+ax1.tick_params(axis="y", labelcolor="tab:blue")
+ax1.grid(axis="x", linestyle="--", alpha=0.6)
+
+# 平均时间曲线
+ax2 = ax1.twinx()
+ax2.set_ylabel("Average Time (s)", fontsize=12, color="tab:red")
+ax2.plot(group_sizes, device_type_times, marker="^", linestyle="-.", color=device_type_color, label="Device Type Time")
+ax2.plot(group_sizes, room_times, marker="d", linestyle="-.", color=room_color, label="Room Time")
+ax2.tick_params(axis="y", labelcolor="tab:red")
+
+# 图例统一放置
+fig.legend(loc="upper left", fontsize=10, bbox_to_anchor=(0.1, 0.95))
+
+# 图表标题和格式
+plt.title("Comparison of Normalized Entropy and Average Time Across Lock Types", fontsize=14)
+plt.tight_layout()
+plt.show()
+

@@ -1,50 +1,3 @@
-import random
-import numpy as np
-from math import log2
-import os
-import matplotlib.pyplot as plt
-
-# 带标签的规则生成函数
-def add_lock_labels_to_rules(rules):
-    # 统计规则分配到的房间，用于均匀分配
-    room_assignments = {room: 0 for room in Room}
-
-    labeled_rules = []
-    for rule in rules:
-        # Step 1: Home 标签
-        home_label = Home
-
-        # Step 2: Room 标签 - 随机均匀分配
-        room_label = min(room_assignments, key=room_assignments.get)
-        room_assignments[room_label] += 1
-
-        # Step 3: DeviceType 标签
-        device_types = []
-        device_names = []
-        for action in rule["Action"]:
-            device_name = action[0]
-            if device_name in device_type_mapping:
-                device_types.append(device_type_mapping[device_name])
-                device_names.append(device_name)
-
-        # 去重，确保唯一性
-        device_types = list(set(device_types))
-        device_names = list(set(device_names))
-
-        # Step 4: 添加标签到规则
-        labeled_rule = rule.copy()
-        labeled_rule["Home"] = home_label
-        labeled_rule["Room"] = [room_label]
-        labeled_rule["DeviceType"] = device_types
-        labeled_rule["DeviceName"] = device_names
-
-        labeled_rules.append(labeled_rule)
-
-    return labeled_rules
-
-
-
-
 ldm = [
     {"score": 3, "Trigger": ["NetatmoWeatherStation", 2], "Condition": [],
      "Action": [["MijiaCurtain1", 1], ["MijiaCurtain2", 1]],
@@ -329,213 +282,34 @@ zyk = [
      "description": "If Weather Station(11) detects rain stop, turn off Purifier(22)", "triggerType": 3},
     {"score": 3, "Trigger": ["RingDoorbell", 2], "Condition": [], "Action": [["MijiaProjector", 0]],
      "description": "If Doorbell(6) rings, mute Projector (23)", "triggerType": 3},
-
 ]
 
-device_type_mapping = {
-    "Smoke": "sensor",
-    "Location": "sensor",
-    "WaterLeakage": "sensor",
-    "MijiaCurtain1": "curtain",
-    "MijiaCurtain2": "curtain",
-    "YeelightBulb": "bulb",
-    "SmartThingsDoorSensor": "sensor",
-    "MijiaDoorLock": "lock",
-    "RingDoorbell": "sensor",
-    "iRobotRoomba": "appliance",
-    "AlexaVoiceAssistance": "voice_assistance",
-    "PhilipsHueLight": "bulb",
-    "MideaAirConditioner": "appliance",
-    "NetatmoWeatherStation": "weather_station",
-    "YeelightCeilingLamp1": "bulb",
-    "YeelightCeilingLamp2": "bulb",
-    "YeelightCeilingLamp3": "bulb",
-    "YeelightCeilingLamp5": "bulb",
-    "YeelightCeilingLamp6": "bulb",
-    "WemoSmartPlug": "plug",
-    "WyzeCamera": "camera",
-    "SmartLifePIRmotionsensor1": "sensor",
-    "SmartLifePIRmotionsensor2": "sensor",
-    "SmartLifePIRmotionsensor3": "sensor",
-    "MijiaPurifier": "appliance",
-    "MijiaProjector": "appliance",
-    "Notification": "notification"
+deviceStatus = {
+    "Smoke":["unsmoke", "smoke"],
+    "Location" : ["home", "away"],
+    "WaterLeakage" : ["unleak", "leak"],
+    "MijiaCurtain1" : ["open", "close"],
+    "MijiaCurtain2" : ["open", "close"],
+    "YeelightBulb" : ["open", "close"],
+    "SmartThingsDoorSensor" : ["open", "close", "detect", "undetect"],
+    "MijiaDoorLock" : ["open", "close"],
+    "RingDoorbell" : ["open", "close", "ring"],
+    "iRobotRoomba" : ["open", "close", "dock"],
+    "AlexaVoiceAssistance" : ["open", "close","openhuelights","closehuelights", "openLamps", "openCutrain", "singsong", "alarm"],
+    "PhilipsHueLight" : ["open", "close"],
+    "MideaAirConditioner" : ["open", "close"],
+    "NetatmoWeatherStation" : ["open", "close", "windy", "rain", "sun", "unrain", "AirPressureRises", "CarbonDioxideRise", "noise"],
+    "YeelightCeilingLamp1" : ["open", "close"],
+    "YeelightCeilingLamp2" : ["open", "close"],
+    "YeelightCeilingLamp3" : ["open", "close"],
+    "YeelightCeilingLamp5" : ["open", "close"],
+    "YeelightCeilingLamp6" : ["open", "close"],
+    "WemoSmartPlug" : ["open", "close"],
+    "WyzeCamera" : ["open", "close", "detect", "alert", "disable", "enable", "COalarm"],
+    "SmartLifePIRmotionsensor1" : ["open", "close", "detect", "undetect"],
+    "SmartLifePIRmotionsensor2" : ["open", "close", "detect", "undetect"],
+    "SmartLifePIRmotionsensor3" : ["open", "close", "detect", "undetect"],
+    "MijiaPurifier" : ["open", "close"],
+    "MijiaProjector" : ["open", "close"],
+    "Notification" : ["notify"]
 }
-
-Home = ["home"]
-Room = ["room1", "room2", "room3", "room4", "room5", "room6"]
-DeviceType = [
-    "bulb",  # 灯具
-    "sensor",  # 传感器
-    "lock",  # 门锁
-    "plug",  # 智能插头
-    "appliance",  # 智能家电
-    "camera",  # 摄像头
-    "voice_assistance",  # 语音助手
-    "curtain",  # 智能窗帘
-    "notification",  # 通知设备
-    "weather_station"  # 天气设备
-]
-DeviceName = ["Smoke", "Location", "WaterLeakage", "MijiaCurtain1", "MijiaCurtain2", "YeelightBulb",
-              "SmartThingsDoorSensor", "MijiaDoorLock", "RingDoorbell", "iRobotRoomba", "AlexaVoiceAssistance",
-              "PhilipsHueLight", "MideaAirConditioner", "NetatmoWeatherStation", "YeelightCeilingLamp1",
-              "YeelightCeilingLamp2", "YeelightCeilingLamp3", "YeelightCeilingLamp5", "YeelightCeilingLamp6",
-              "WemoSmartPlug", "WyzeCamera", "SmartLifePIRmotionsensor1", "SmartLifePIRmotionsensor2",
-              "SmartLifePIRmotionsensor3", "MijiaPurifier", "MijiaProjector", "Notification"]
-
-
-all_rules = ldm + whd + wzf + zxh + zyk
-labeled_rules = add_lock_labels_to_rules(all_rules)
-
-
-# Group rules by size
-random.seed(32)
-rule_groups = []
-remaining_rules = labeled_rules.copy()
-
-group_sizes = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
-previous_group = []
-
-for size in group_sizes:
-    current_group = random.sample(remaining_rules, size - len(previous_group))
-    previous_group += current_group
-    rule_groups.append(previous_group.copy())
-    remaining_rules = [rule for rule in remaining_rules if rule not in current_group]
-
-# Select group size = 30
-group_size_30 = rule_groups[9]
-
-lock_types = {
-    "home": Home,
-    "room": Room,
-    "device_type": DeviceType,
-    "device_name": DeviceName
-}
-
-def calculate_lock_uniformity(lock_usage):
-    """
-    计算锁使用分布的均匀性指标，包括：
-    1. 均匀性系数
-    2. Gini 系数
-    3. 归一化熵
-    4. 偏差指数
-    """
-    lock_usage = np.array(lock_usage)
-    total_usage = lock_usage.sum()
-    num_locks = len(lock_usage)
-
-    if total_usage == 0 or num_locks == 0:
-        # 如果没有规则使用这些锁，返回全零
-        return {"均匀性系数": 0, "Gini系数": 0, "归一化熵": 0, "偏差指数": 0}
-
-    # 计算均匀性系数
-    mean_usage = np.mean(lock_usage)
-    std_dev = np.std(lock_usage)
-    uniformity_coefficient = std_dev / mean_usage
-
-    # 计算 Gini 系数
-    gini = np.sum(np.abs(np.subtract.outer(lock_usage, lock_usage))) / (2 * num_locks * total_usage)
-
-    # 计算归一化熵
-    probabilities = lock_usage / total_usage
-    entropy = -np.sum([p * log2(p) for p in probabilities if p > 0])
-    max_entropy = log2(num_locks)
-    normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0
-
-    # 计算偏差指数
-    max_usage = max(lock_usage)
-    bias_index = max_usage / mean_usage
-
-    return {
-        "均匀性系数": uniformity_coefficient,
-        "Gini系数": gini,
-        "归一化熵": normalized_entropy,
-        "偏差指数": bias_index,
-    }
-
-def count_lock_usage(group, locks, lock_type):
-    """
-    统计每个锁的使用频率，根据锁类型从规则标签中提取数据。
-    """
-    lock_usage = {lock: 0 for lock in locks}
-    for rule in group:
-        # 根据锁类型读取对应的标签
-        if lock_type == "home":
-            used_locks = rule.get("Home", [])
-        elif lock_type == "room":
-            used_locks = rule.get("Room", [])
-        elif lock_type == "device_type":
-            used_locks = rule.get("DeviceType", [])
-        elif lock_type == "device_name":
-            used_locks = rule.get("DeviceName", [])
-        else:
-            used_locks = []
-
-        # 更新锁的使用频率
-        for lock in used_locks:
-            if lock in lock_usage:
-                lock_usage[lock] += 1
-
-    return list(lock_usage.values())
-
-normalized_entropies = []
-# 计算每种锁类型的均匀性指标
-for lock_type, locks in lock_types.items():
-    # 调用改进后的 count_lock_usage 函数
-    usage_counts = count_lock_usage(group_size_30, locks, lock_type)
-    metrics = calculate_lock_uniformity(usage_counts)
-    print(f"{lock_type.capitalize()} Locks:")
-    for metric, value in metrics.items():
-        print(f"  {metric}: {value:.2f}")
-    print()
-
-    # 提取归一化熵并添加到列表
-    normalized_entropies.append(metrics["归一化熵"])
-
-
-base_path = r"E:\\研究生信息收集\\论文材料\\IoT-Event-Detector\\Detector\\Mutex\\Atomicity\\MiJia\\Unit\\Data"
-file_prefixes = ["device_name", "device_type", "room", "home"]
-# 存储时间均值
-time_values = {}
-
-for prefix in file_prefixes:
-    file_name = f"{prefix}_lock_groups_50.txt"
-    file_path = os.path.join(base_path, file_name)
-
-    if os.path.exists(file_path):
-        with open(file_path, "r") as f:
-            values = [float(line.strip()) for line in f if line.strip()]
-            avg_time = np.mean(values)
-            time_values[prefix] = avg_time
-
-for lock_type, avg_time in time_values.items():
-    print(f"{lock_type.capitalize()} Locks Time Value: {avg_time}")
-
-
-lock_types = ["home", "device_type", "device_name","room"]
-normalized_entropies = [normalized_entropies[0], normalized_entropies[2], normalized_entropies[3], normalized_entropies[1]]
-time_values_list = [time_values["home"], time_values["device_type"], time_values["device_name"], time_values["room"]]
-
-# 绘制图表
-fig, ax1 = plt.subplots(figsize=(10, 6))
-
-# 归一化熵曲线
-ax1.set_xlabel("Lock Types", fontsize=12)
-ax1.set_ylabel("Normalized Entropy", fontsize=12, color="tab:blue")
-ax1.plot(lock_types, normalized_entropies, marker="o", linestyle="-", color="tab:blue", label="Normalized Entropy")
-ax1.tick_params(axis="y", labelcolor="tab:blue")
-ax1.legend(loc="upper left")
-
-# 时间花费曲线
-ax2 = ax1.twinx()
-ax2.set_ylabel("Average Time (s)", fontsize=12, color="tab:red")
-ax2.plot(lock_types, time_values_list, marker="s", linestyle="--", color="tab:red", label="Average Time")
-ax2.tick_params(axis="y", labelcolor="tab:red")
-ax2.legend(loc="upper right")
-
-# 图表标题和格式
-plt.title("Normalized Entropy and Average Time Across Lock Types", fontsize=14)
-plt.grid(axis="x", linestyle="--", alpha=0.6)
-
-plt.tight_layout()
-plt.show()
