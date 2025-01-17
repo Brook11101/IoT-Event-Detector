@@ -282,8 +282,37 @@ zyk = [
      "description": "If Weather Station(11) detects rain stop, turn off Purifier(22)", "triggerType": 3},
     {"score": 3, "Trigger": ["RingDoorbell", 2], "Condition": [], "Action": [["MijiaProjector", 0]],
      "description": "If Doorbell(6) rings, mute Projector (23)", "triggerType": 3},
-
 ]
+
+deviceStatus = {
+    "Smoke":["unsmoke", "smoke"],
+    "Location" : ["home", "away"],
+    "WaterLeakage" : ["unleak", "leak"],
+    "MijiaCurtain1" : ["open", "close"],
+    "MijiaCurtain2" : ["open", "close"],
+    "YeelightBulb" : ["open", "close"],
+    "SmartThingsDoorSensor" : ["open", "close", "detect", "undetect"],
+    "MijiaDoorLock" : ["open", "close"],
+    "RingDoorbell" : ["open", "close", "ring"],
+    "iRobotRoomba" : ["open", "close", "dock"],
+    "AlexaVoiceAssistance" : ["open", "close","openhuelights","closehuelights", "openLamps", "openCutrain", "singsong", "alarm"],
+    "PhilipsHueLight" : ["open", "close"],
+    "MideaAirConditioner" : ["open", "close"],
+    "NetatmoWeatherStation" : ["open", "close", "windy", "rain", "sun", "unrain", "AirPressureRises", "CarbonDioxideRise", "noise"],
+    "YeelightCeilingLamp1" : ["open", "close"],
+    "YeelightCeilingLamp2" : ["open", "close"],
+    "YeelightCeilingLamp3" : ["open", "close"],
+    "YeelightCeilingLamp5" : ["open", "close"],
+    "YeelightCeilingLamp6" : ["open", "close"],
+    "WemoSmartPlug" : ["open", "close"],
+    "WyzeCamera" : ["open", "close", "detect", "alert", "disable", "enable", "COalarm"],
+    "SmartLifePIRmotionsensor1" : ["open", "close", "detect", "undetect"],
+    "SmartLifePIRmotionsensor2" : ["open", "close", "detect", "undetect"],
+    "SmartLifePIRmotionsensor3" : ["open", "close", "detect", "undetect"],
+    "MijiaPurifier" : ["open", "close"],
+    "MijiaProjector" : ["open", "close"],
+    "Notification" : ["notify"]
+}
 
 device_type_mapping = {
     "Smoke": "sensor",
@@ -368,6 +397,3 @@ def add_ruleid_to_rules(rules):
 
 def get_all_rules():
     return add_ruleid_to_rules(add_lock_labels_to_rules(ldm + whd + wzf + zxh + zyk))
-
-
-print(get_all_rules())

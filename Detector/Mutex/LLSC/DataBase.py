@@ -35,7 +35,6 @@ def create_database():
         print(f"Error while creating database: {e}")
 
 
-# 创建规则执行日志表
 def create_table():
     try:
         connection = connect_to_mysql()
@@ -50,12 +49,16 @@ def create_table():
                     action_device JSON,
                     description TEXT,
                     lock_device JSON,
-                    timestamp TIMESTAMP
+                    timestamp TIMESTAMP,
+                    status BOOLEAN,  -- 表示规则是否成功执行
+                    INDEX idx_timestamp_status (timestamp, status),  -- 为 timestamp 和 status 添加联合索引
+                    INDEX idx_ruleid (ruleid)        -- 为 ruleid 添加单独索引
                 )
             """)
             connection.close()
     except Error as e:
         print(f"Error while creating table: {e}")
+
 
 
 # 插入规则执行日志
@@ -76,3 +79,5 @@ def insert_log(ruleid, trigger_device, condition_device, action_device, descript
 
     connection.commit()
     connection.close()
+
+create_table()
