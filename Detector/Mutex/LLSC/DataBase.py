@@ -1,6 +1,10 @@
 import mysql.connector
 import json
 from mysql.connector import Error
+import StatusMapping
+from datetime import datetime
+
+from Detector.Mutex.LLSC import RuleSet
 
 
 # 连接到 MySQL 数据库
@@ -49,7 +53,7 @@ def create_table():
                     action_device JSON,
                     description TEXT,
                     lock_device JSON,
-                    timestamp TIMESTAMP,
+                    timestamp BIGINT,
                     status BOOLEAN,  -- 表示规则是否成功执行
                     INDEX idx_timestamp_status (timestamp, status),  -- 为 timestamp 和 status 添加联合索引
                     INDEX idx_ruleid (ruleid)        -- 为 ruleid 添加单独索引
@@ -60,24 +64,71 @@ def create_table():
         print(f"Error while creating table: {e}")
 
 
-
-# 插入规则执行日志
 def insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp):
+    # 获取数据库连接
     connection = connect_to_mysql()
     cursor = connection.cursor()
 
-    # 将设备名称列表转换为 JSON 格式的字符串
-    trigger_device_json = json.dumps(trigger_device)
-    condition_device_json = json.dumps(condition_device)
-    action_device_json = json.dumps(action_device)
-    lock_device_json = json.dumps(lock_device)
+    try:
+        # 设置事务隔离级别为 SERIALIZABLE
+        cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE")
 
-    cursor.execute("""
-        INSERT INTO rule_execution_log (ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-    """, (ruleid, trigger_device_json, condition_device_json, action_device_json, description, lock_device_json, timestamp))
+        # 将设备名称列表转换为 JSON 格式的字符串
+        trigger_device_json = json.dumps(trigger_device)
+        condition_device_json = json.dumps(condition_device)
+        action_device_json = json.dumps(action_device)
+        lock_device_json = json.dumps(lock_device)
 
-    connection.commit()
-    connection.close()
+        # 获取当前时间戳（以秒为单位）
+        current_timestamp = int(datetime.now().timestamp())  # 获取当前时间的 Unix 时间戳（秒）
 
-create_table()
+        # 获取当前规则的冲突规则ID集合
+        conflict_rule_ids = StatusMapping.find_rule_conflicts(RuleSet.get_all_rules()).get(ruleid, set())
+
+        # 开始事务
+        cursor.execute("START TRANSACTION")
+
+        if conflict_rule_ids:
+            # 构建冲突规则ID的查询，检查是否有冲突规则在传入时间戳后执行且 status 为 TRUE
+            conflict_rule_ids_placeholder = ','.join([str(rid) for rid in conflict_rule_ids])
+            cursor.execute(f"""
+                SELECT * FROM rule_execution_log
+                WHERE ruleid IN ({conflict_rule_ids_placeholder}) 
+                AND timestamp > %s
+                AND status = TRUE
+                FOR UPDATE
+            """, (current_timestamp,))
+
+            conflict_result = cursor.fetchall()
+
+            if conflict_result:
+                # 如果查询到冲突规则且状态为 TRUE，插入当前记录时将 status 设置为 FALSE
+                cursor.execute("""
+                    INSERT INTO rule_execution_log (ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (ruleid, trigger_device_json, condition_device_json, action_device_json, description, lock_device_json, current_timestamp, False))
+            else:
+                # 如果没有冲突规则，插入当前记录时将 status 设置为 TRUE
+                cursor.execute("""
+                    INSERT INTO rule_execution_log (ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (ruleid, trigger_device_json, condition_device_json, action_device_json, description, lock_device_json, current_timestamp, True))
+        else:
+            # 如果没有冲突规则，直接插入当前记录，status 设置为 TRUE
+            cursor.execute("""
+                INSERT INTO rule_execution_log (ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (ruleid, trigger_device_json, condition_device_json, action_device_json, description, lock_device_json, current_timestamp, True))
+
+        # 提交事务
+        connection.commit()
+
+    except Exception as e:
+        # 如果发生错误，回滚事务
+        connection.rollback()
+        print(f"Error during transaction: {e}")
+
+    finally:
+        # 关闭数据库连接
+        connection.close()
+
