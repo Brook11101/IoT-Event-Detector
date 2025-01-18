@@ -1,3 +1,6 @@
+import random
+from time import sleep
+
 import mysql.connector
 import json
 from mysql.connector import Error
@@ -64,14 +67,13 @@ def create_table():
         print(f"Error while creating table: {e}")
 
 
+# 以LLSC的方式插入规则执行日志
 def insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp):
     # 获取数据库连接
     connection = connect_to_mysql()
     cursor = connection.cursor()
 
     try:
-        # 设置事务隔离级别为 SERIALIZABLE
-        cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE")
 
         # 将设备名称列表转换为 JSON 格式的字符串
         trigger_device_json = json.dumps(trigger_device)
@@ -79,14 +81,14 @@ def insert_log(ruleid, trigger_device, condition_device, action_device, descript
         action_device_json = json.dumps(action_device)
         lock_device_json = json.dumps(lock_device)
 
-        # 获取当前时间戳（以秒为单位）
-        current_timestamp = int(datetime.now().timestamp())  # 获取当前时间的 Unix 时间戳（秒）
-
         # 获取当前规则的冲突规则ID集合
         conflict_rule_ids = StatusMapping.find_rule_conflicts(RuleSet.get_all_rules()).get(ruleid, set())
 
         # 开始事务
         cursor.execute("START TRANSACTION")
+
+        # 1. 获取全局锁
+        cursor.execute("LOCK TABLES rule_execution_log WRITE")  # 锁定整个表
 
         if conflict_rule_ids:
             # 构建冲突规则ID的查询，检查是否有冲突规则在传入时间戳后执行且 status 为 TRUE
@@ -96,29 +98,46 @@ def insert_log(ruleid, trigger_device, condition_device, action_device, descript
                 WHERE ruleid IN ({conflict_rule_ids_placeholder}) 
                 AND timestamp > %s
                 AND status = TRUE
-                FOR UPDATE
-            """, (current_timestamp,))
+            """, (timestamp,))
 
             conflict_result = cursor.fetchall()
 
             if conflict_result:
+                print(str(ruleid) + "find conflict")
                 # 如果查询到冲突规则且状态为 TRUE，插入当前记录时将 status 设置为 FALSE
+                # 获取当前时间戳（以秒为单位）
+                current_timestamp = int(datetime.now().timestamp())  # 获取当前时间的 Unix 时间戳（秒）
                 cursor.execute("""
                     INSERT INTO rule_execution_log (ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp, status)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """, (ruleid, trigger_device_json, condition_device_json, action_device_json, description, lock_device_json, current_timestamp, False))
+                """, (
+                    ruleid, trigger_device_json, condition_device_json, action_device_json, description,
+                    lock_device_json,
+                    current_timestamp, False))
             else:
                 # 如果没有冲突规则，插入当前记录时将 status 设置为 TRUE
+                print(str(ruleid) + "dont find conflict")
+                sleep(random.uniform(1.5, 2.0))
+                # 获取当前时间戳（以秒为单位）
+                current_timestamp = int(datetime.now().timestamp())  # 获取当前时间的 Unix 时间戳（秒）
                 cursor.execute("""
                     INSERT INTO rule_execution_log (ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp, status)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """, (ruleid, trigger_device_json, condition_device_json, action_device_json, description, lock_device_json, current_timestamp, True))
+                """, (
+                    ruleid, trigger_device_json, condition_device_json, action_device_json, description,
+                    lock_device_json,
+                    current_timestamp, True))
         else:
             # 如果没有冲突规则，直接插入当前记录，status 设置为 TRUE
+            print(str(ruleid) + "no conflict")
+            sleep(random.uniform(1.5, 2.0))
+            # 获取当前时间戳（以秒为单位）
+            current_timestamp = int(datetime.now().timestamp())  # 获取当前时间的 Unix 时间戳（秒）
             cursor.execute("""
                 INSERT INTO rule_execution_log (ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp, status)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (ruleid, trigger_device_json, condition_device_json, action_device_json, description, lock_device_json, current_timestamp, True))
+            """, (ruleid, trigger_device_json, condition_device_json, action_device_json, description, lock_device_json,
+                  current_timestamp, True))
 
         # 提交事务
         connection.commit()
@@ -129,6 +148,8 @@ def insert_log(ruleid, trigger_device, condition_device, action_device, descript
         print(f"Error during transaction: {e}")
 
     finally:
+        # 解锁表
+        cursor.execute("UNLOCK TABLES")
+
         # 关闭数据库连接
         connection.close()
-
