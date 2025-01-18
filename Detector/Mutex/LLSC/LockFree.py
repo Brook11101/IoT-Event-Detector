@@ -19,6 +19,9 @@ def execute_rule(rule, start_timestamp):
     description = rule["description"]
     lock_device = rule["Lock"]
 
+    # 这里使用的是当前请求的执行开始时间，开始执行的时候，发现导致自己Trigger/Condition条件违反的规则已经执行了，那么自己就被取消
+    start_timestamp = int(datetime.now().timestamp())
+
     # 调用 insert_log 函数将数据插入数据库
     insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, start_timestamp)
 
