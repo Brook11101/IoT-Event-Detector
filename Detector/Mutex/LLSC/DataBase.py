@@ -67,6 +67,34 @@ def create_table():
         print(f"Error while creating table: {e}")
 
 
+def clear_table():
+    """
+    清空 rule_execution_log 表中的所有内容。
+    """
+    try:
+        # 连接到数据库
+        connection = mysql.connector.connect(
+            host="114.55.74.144",
+            user="root",
+            password="Root123456.",
+            database="rule_db"
+        )
+        cursor = connection.cursor()
+
+        # 清空表内容
+        cursor.execute("TRUNCATE TABLE rule_execution_log")
+
+        print("Table rule_execution_log has been cleared successfully.")
+
+    except Error as e:
+        print(f"Error while clearing table: {e}")
+
+    finally:
+        # 关闭连接
+        if connection.is_connected():
+            connection.close()
+
+
 # 以LLSC的方式插入规则执行日志
 def insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp):
     # 获取数据库连接
