@@ -1,6 +1,8 @@
 import json
+import random
 import threading
 from datetime import datetime
+from time import sleep
 from turtledemo.penrose import start
 
 import mysql
@@ -24,6 +26,9 @@ def execute_rule(rule, start_timestamp):
 
     # 这里使用的是当前请求的执行开始时间，开始执行的时候，发现导致自己Trigger/Condition条件违反的规则已经执行了，那么自己就被取消
     start_timestamp = int(datetime.now().timestamp())
+
+    # 在这里我把sleep的时间同一设置在了插入记录函数的调用前，这是因为放在这里用于模拟trigger触发到action命令收到间隔的时间，此时收到后再去判断是否真正执行
+    sleep(random.uniform(1.5, 2.0))
 
     # 调用 insert_log 函数将数据插入数据库
     insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, start_timestamp)
@@ -85,14 +90,16 @@ def get_device_status():
             trigger_device = log["trigger_device"]
             if trigger_device:
                 trigger_device_data = json.loads(trigger_device)
-                device_status_result[trigger_device_data[0]] = trigger_device_data[1]
+                if trigger_device_data[0] in device_status_result:  # 判断是否在 deviceStatus 中
+                    device_status_result[trigger_device_data[0]] = trigger_device_data[1]
 
             # 更新 action_device 的状态（优先级更高）
             action_device = log["action_device"]
             if action_device:
                 action_device_data = json.loads(action_device)
                 for device, state in action_device_data:
-                    device_status_result[device] = state
+                    if device in device_status_result:  # 判断是否在 deviceStatus 中
+                        device_status_result[device] = state
 
 
     except mysql.connector.Error as e:
