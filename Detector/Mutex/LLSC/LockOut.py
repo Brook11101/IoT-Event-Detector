@@ -89,8 +89,8 @@ def find_conflict_reverse_pairs(execution_order):
 
             # 检测是否为逆序对 (rule_j 比 rule_i 早完成，但启动顺序晚)
             if rule_j < rule_i:
-                # 检查是否是冲突逆序对
-                if rule_j in conflict_dict.get(rule_i, set()):
+                # 对于找到的逆序对，要以小的id作为key值，检查大的id是否影响了小的id的规则
+                if rule_i in conflict_dict.get(rule_j, set()):
                     conflict_reverse_pairs.append((rule_i, rule_j))
 
     return conflict_reverse_pairs

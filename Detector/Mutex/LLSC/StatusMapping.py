@@ -27,10 +27,11 @@ def find_rule_conflicts(rules):
         # 遍历其他规则，判断它们的 Action 设备是否与当前规则的 Trigger 或 Condition 设备冲突
         for other_rule in rules:
             other_rule_id = other_rule['RuleId']
-            if other_rule_id == current_rule_id:  # 忽略与自己冲突的情况
+            # 忽略小于id的规则，这些规则本来就是先启动的
+            if other_rule_id <= current_rule_id:  # 忽略与自己冲突的情况
                 continue
 
-            # 检查其他规则的 Action 设备
+            # 检查其他晚于自己启动的规则的 Action 设备，是否会影响到自己的触发条件
             for action in other_rule["Action"]:
                 action_device = action[0]
                 # 如果其他规则的 Action 设备在当前规则的 Trigger 或 Condition 中，并且状态不同，则冲突
