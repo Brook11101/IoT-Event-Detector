@@ -12,8 +12,6 @@ from DataBase import clear_table
 from Detector.Mutex.LLSC import StatusMapping
 
 
-lock = threading.Lock()
-
 def execute_rule(rule, start_timestamp):
     """
     执行单条规则，将数据插入数据库
@@ -33,9 +31,8 @@ def execute_rule(rule, start_timestamp):
     # 在这里我把sleep的时间同一设置在了插入记录函数的调用前，这是因为放在这里用于模拟trigger触发到action命令收到间隔的时间，此时收到后再去判断是否真正执行
     sleep(random.uniform(1.5, 2.0))
 
-    with lock:
-        # 调用 insert_log 函数将数据插入数据库
-        insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, start_timestamp)
+    # 调用 insert_log 函数将数据插入数据库
+    insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, start_timestamp)
 
 
 def execute_all_rules_concurrently():
@@ -84,7 +81,7 @@ def get_device_status():
         cursor.execute("""
             SELECT * FROM rule_execution_log
             WHERE status = TRUE
-            ORDER BY timestamp ASC
+            ORDER BY logid ASC
         """)
         logs = cursor.fetchall()
 
@@ -135,7 +132,7 @@ def get_execution_order():
         cursor.execute("""
             SELECT ruleid FROM rule_execution_log
             WHERE status = TRUE
-            ORDER BY timestamp ASC
+            ORDER BY logid ASC
         """)
         logs = cursor.fetchall()
 
