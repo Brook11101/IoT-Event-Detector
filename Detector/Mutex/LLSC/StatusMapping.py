@@ -1,5 +1,6 @@
 import RuleSet
 
+
 def find_rule_conflicts(rules):
     """
     检查规则集中的规则是否存在冲突，并返回一个字典，记录每个规则的冲突规则。
@@ -43,7 +44,11 @@ def find_rule_conflicts(rules):
                         if current_rule_id not in conflicts:
                             conflicts[current_rule_id] = set()
                         conflicts[current_rule_id].add(other_rule_id)
+    total = 0
+    for source_rule_id, conflict_set in conflicts.items():
+        total += len(conflict_set)
+    print(total)
     return conflicts
 
-
-print(find_rule_conflicts(RuleSet.get_all_rules()))
+print(len(RuleSet.Group5))
+print(find_rule_conflicts(RuleSet.Group5))

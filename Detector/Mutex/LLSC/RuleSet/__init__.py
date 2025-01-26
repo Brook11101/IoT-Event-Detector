@@ -1,3 +1,5 @@
+from email.headerregistry import Group
+
 ldm = [
     {"score": 3, "Trigger": ["NetatmoWeatherStation", 2], "Condition": [],
      "Action": [["MijiaCurtain1", 1], ["MijiaCurtain2", 1]],
@@ -285,33 +287,35 @@ zyk = [
 ]
 
 deviceStatus = {
-    "Smoke":["unsmoke", "smoke"],
-    "Location" : ["home", "away"],
-    "WaterLeakage" : ["unleak", "leak"],
-    "MijiaCurtain1" : ["open", "close"],
-    "MijiaCurtain2" : ["open", "close"],
-    "YeelightBulb" : ["open", "close"],
-    "SmartThingsDoorSensor" : ["open", "close", "detect", "undetect"],
-    "MijiaDoorLock" : ["open", "close"],
-    "RingDoorbell" : ["open", "close", "ring"],
-    "iRobotRoomba" : ["open", "close", "dock"],
-    "AlexaVoiceAssistance" : ["open", "close","openhuelights","closehuelights", "openLamps", "openCutrain", "singsong", "alarm"],
-    "PhilipsHueLight" : ["open", "close"],
-    "MideaAirConditioner" : ["open", "close"],
-    "NetatmoWeatherStation" : ["open", "close", "windy", "rain", "sun", "unrain", "AirPressureRises", "CarbonDioxideRise", "noise"],
-    "YeelightCeilingLamp1" : ["open", "close"],
-    "YeelightCeilingLamp2" : ["open", "close"],
-    "YeelightCeilingLamp3" : ["open", "close"],
-    "YeelightCeilingLamp5" : ["open", "close"],
-    "YeelightCeilingLamp6" : ["open", "close"],
-    "WemoSmartPlug" : ["open", "close"],
-    "WyzeCamera" : ["open", "close", "detect", "alert", "disable", "enable", "COalarm"],
-    "SmartLifePIRmotionsensor1" : ["open", "close", "detect", "undetect"],
-    "SmartLifePIRmotionsensor2" : ["open", "close", "detect", "undetect"],
-    "SmartLifePIRmotionsensor3" : ["open", "close", "detect", "undetect"],
-    "MijiaPurifier" : ["open", "close"],
-    "MijiaProjector" : ["open", "close"],
-    "Notification" : ["notify"]
+    "Smoke": ["unsmoke", "smoke"],
+    "Location": ["home", "away"],
+    "WaterLeakage": ["unleak", "leak"],
+    "MijiaCurtain1": ["open", "close"],
+    "MijiaCurtain2": ["open", "close"],
+    "YeelightBulb": ["open", "close"],
+    "SmartThingsDoorSensor": ["open", "close", "detect", "undetect"],
+    "MijiaDoorLock": ["open", "close"],
+    "RingDoorbell": ["open", "close", "ring"],
+    "iRobotRoomba": ["open", "close", "dock"],
+    "AlexaVoiceAssistance": ["open", "close", "openhuelights", "closehuelights", "openLamps", "openCutrain", "singsong",
+                             "alarm"],
+    "PhilipsHueLight": ["open", "close"],
+    "MideaAirConditioner": ["open", "close"],
+    "NetatmoWeatherStation": ["open", "close", "windy", "rain", "sun", "unrain", "AirPressureRises",
+                              "CarbonDioxideRise", "noise"],
+    "YeelightCeilingLamp1": ["open", "close"],
+    "YeelightCeilingLamp2": ["open", "close"],
+    "YeelightCeilingLamp3": ["open", "close"],
+    "YeelightCeilingLamp5": ["open", "close"],
+    "YeelightCeilingLamp6": ["open", "close"],
+    "WemoSmartPlug": ["open", "close"],
+    "WyzeCamera": ["open", "close", "detect", "alert", "disable", "enable", "COalarm"],
+    "SmartLifePIRmotionsensor1": ["open", "close", "detect", "undetect"],
+    "SmartLifePIRmotionsensor2": ["open", "close", "detect", "undetect"],
+    "SmartLifePIRmotionsensor3": ["open", "close", "detect", "undetect"],
+    "MijiaPurifier": ["open", "close"],
+    "MijiaProjector": ["open", "close"],
+    "Notification": ["notify"]
 }
 
 device_type_mapping = {
@@ -343,7 +347,6 @@ device_type_mapping = {
     "MijiaProjector": "appliance",
     "Notification": "notification"
 }
-
 
 DeviceName = ["Smoke", "Location", "WaterLeakage", "MijiaCurtain1", "MijiaCurtain2", "YeelightBulb",
               "SmartThingsDoorSensor", "MijiaDoorLock", "RingDoorbell", "iRobotRoomba", "AlexaVoiceAssistance",
@@ -395,5 +398,78 @@ def add_ruleid_to_rules(rules):
         rule["RuleId"] = index
     return rules
 
+
 def get_all_rules():
     return add_ruleid_to_rules(add_lock_labels_to_rules(ldm + whd + wzf + zxh + zyk))
+
+
+def group_rules():
+    """
+    返回5组分好类的规则：group1, group2, group3, group4, group5
+    每组均含有所有无冲突规则，以及若干有冲突规则 ID
+    """
+
+    # -----------------------
+    # (1) 获取全部 100 条规则（已带 RuleId）
+    # -----------------------
+    all_rules = get_all_rules()
+    all_rule_ids = {r['RuleId'] for r in all_rules}
+
+    # -----------------------
+    # (2) 写死的分组 ID (冲突规则部分)
+    #
+    #    这些 ID 来自于你手工挑选，用于构造
+    #    group1 ~ group5 的递增冲突场景。
+    # -----------------------
+    G1_conflict_ids = {
+        5, 9, 10, 11, 13, 22, 25, 27, 28, 29, 45, 46, 68, 84, 86, 94, 95
+    }
+    G2_new_add = {23, 24, 47, 50, 53, 54, 78, 79, 85, 93}
+    G3_new_add = {36, 37, 38, 52, 56, 57, 60, 62, 64, 70, 76, 82, 98, 99}
+    G4_new_add = {21, 39, 43, 44, 49, 61, 71, 72, 74, 81, 96, 97}
+    G5_new_add = {20, 55, 59}  # 补齐其余剩下的冲突规则
+
+    # -----------------------
+    # (3) 我们假设冲突规则的全集(参与冲突)就是
+    #     上述集合的并集(如果你已经检测好还有其他ID，可手动再加)
+    # -----------------------
+    conflict_involved_ids = set().union(
+        G1_conflict_ids, G2_new_add, G3_new_add, G4_new_add, G5_new_add
+    )
+
+    # -----------------------
+    # (4) “无冲突”规则 ID = 全部规则ID - 参与冲突的ID
+    #     这些“无冲突”规则会被加到每个分组中，以模拟真实环境
+    # -----------------------
+    no_conflict_ids = all_rule_ids - conflict_involved_ids
+
+    # -----------------------
+    # (5) 构造最终分组 ID
+    #     group1_conflict_set: G1
+    #     group2_conflict_set: group1_conflict_set ∪ G2
+    #     ...
+    #     group5_conflict_set: group4_conflict_set ∪ G5
+    # -----------------------
+    group1_conflict_set = G1_conflict_ids
+    group2_conflict_set = group1_conflict_set.union(G2_new_add)
+    group3_conflict_set = group2_conflict_set.union(G3_new_add)
+    group4_conflict_set = group3_conflict_set.union(G4_new_add)
+    group5_conflict_set = group4_conflict_set.union(G5_new_add)
+
+    # -----------------------
+    # (6) 将每组的“冲突规则 ID” + “无冲突规则 ID” 转为规则对象
+    # -----------------------
+    def rules_by_ids(rules, ids_set):
+        return [r for r in rules if r['RuleId'] in ids_set]
+
+    group1 = rules_by_ids(all_rules, group1_conflict_set.union(no_conflict_ids))
+    group2 = rules_by_ids(all_rules, group2_conflict_set.union(no_conflict_ids))
+    group3 = rules_by_ids(all_rules, group3_conflict_set.union(no_conflict_ids))
+    group4 = rules_by_ids(all_rules, group4_conflict_set.union(no_conflict_ids))
+    group5 = rules_by_ids(all_rules, group5_conflict_set.union(no_conflict_ids))
+
+    # 返回这5个分组列表
+    return group1, group2, group3, group4, group5
+
+
+Group1, Group2, Group3, Group4, Group5 = group_rules()
