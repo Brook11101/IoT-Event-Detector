@@ -169,7 +169,7 @@ def find_conflict_reverse_pairs(execution_order):
     return conflict_reverse_pairs
 
 # 获取所有规则
-rules = RuleSet.get_all_rules()
+rules = RuleSet.Group1
 # 并发执行规则
 execute_all_rules_concurrently(rules)
 # execution_order 和冲突检测

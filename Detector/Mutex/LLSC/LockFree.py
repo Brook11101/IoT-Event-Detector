@@ -35,13 +35,10 @@ def execute_rule(rule, start_timestamp):
     insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, start_timestamp)
 
 
-def execute_all_rules_concurrently():
+def execute_all_rules_concurrently(rules):
     """
     并发执行所有规则
     """
-    # 获取所有规则
-    rules = RuleSet.get_all_rules()
-
     # 创建线程列表
     threads = []
 
@@ -210,8 +207,12 @@ deviceStatus = {
 
 # 清空上一轮的执行记录
 clear_table()
+
+# 获取所有规则
+rules = RuleSet.Group5
+
 # 执行所有规则并发任务
-execute_all_rules_concurrently()
+execute_all_rules_concurrently(rules)
 
 # 获取规则执行顺序
 execution_order = get_execution_order()

@@ -44,11 +44,4 @@ def find_rule_conflicts(rules):
                         if current_rule_id not in conflicts:
                             conflicts[current_rule_id] = set()
                         conflicts[current_rule_id].add(other_rule_id)
-    total = 0
-    for source_rule_id, conflict_set in conflicts.items():
-        total += len(conflict_set)
-    print(total)
     return conflicts
-
-print(len(RuleSet.Group5))
-print(find_rule_conflicts(RuleSet.Group5))
