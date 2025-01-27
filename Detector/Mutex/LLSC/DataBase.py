@@ -1,5 +1,5 @@
 import random
-from time import sleep
+from time import sleep, time
 
 import mysql.connector
 import json
@@ -96,7 +96,8 @@ def clear_table():
 
 
 # 以LLSC的方式插入规则执行日志
-def insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp):
+def insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, timestamp,
+               start_time):
     # 获取数据库连接
     connection = connect_to_mysql()
     cursor = connection.cursor()
@@ -109,9 +110,7 @@ def insert_log(ruleid, trigger_device, condition_device, action_device, descript
         lock_device_json = json.dumps(lock_device)
 
         # 获取当前规则的冲突规则ID集合
-        conflict_rule_ids = StatusMapping.find_rule_conflicts(RuleSet.get_all_rules()).get(ruleid, set())
-        # 默认规则未执行
-        rule_executed = False
+        conflict_rule_ids = StatusMapping.rule_conflict_map.get(ruleid, set())
 
         # 设置当前会话的事务隔离级别为 READ UNCOMMITTED
         cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
@@ -129,6 +128,7 @@ def insert_log(ruleid, trigger_device, condition_device, action_device, descript
             """, (timestamp,))
 
             conflict_result = cursor.fetchall()
+            current_timestamp = start_time
 
             if conflict_result:
                 print(str(ruleid) + " find conflict")
@@ -152,7 +152,6 @@ def insert_log(ruleid, trigger_device, condition_device, action_device, descript
                     ruleid, trigger_device_json, condition_device_json, action_device_json, description,
                     lock_device_json,
                     current_timestamp, True))
-                rule_executed = True  # 标记规则已执行
         else:
             print(str(ruleid) + " no conflict")
             # 如果没有冲突规则，直接插入当前记录，status 设置为 TRUE
@@ -162,8 +161,8 @@ def insert_log(ruleid, trigger_device, condition_device, action_device, descript
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (ruleid, trigger_device_json, condition_device_json, action_device_json, description, lock_device_json,
                   current_timestamp, True))
-            rule_executed = True  # 标记规则已执行
 
+        exec_time = current_timestamp - start_time
         # 提交事务
         connection.commit()
 
@@ -171,10 +170,8 @@ def insert_log(ruleid, trigger_device, condition_device, action_device, descript
         # 如果发生错误，回滚事务
         connection.rollback()
         print(f"Error during transaction: {e}")
-        rule_executed = False  # 如果发生异常，规则未执行
 
     finally:
         # 关闭数据库连接
         connection.close()
-        return rule_executed  # 返回规则是否执行
-
+        return exec_time  # 返回规则是否执行

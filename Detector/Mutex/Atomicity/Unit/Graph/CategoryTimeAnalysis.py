@@ -15,10 +15,10 @@ rule_counts = [5, 10, 15, 20, 25]
 
 # 初始化颜色和线条样式，便于区分
 types_styles = {
-    "device_name": {"color": "blue", "linestyle": "-", "label": "Device_Name Lock"},
-    "device_type": {"color": "green", "linestyle": "--", "label": "Device_Type Lock"},
-    "room": {"color": "red", "linestyle": "-.", "label": "Room Lock"},
-    "home": {"color": "purple", "linestyle": ":", "label": "Home Lock"},
+    "device_name": {"color": "blue", "linestyle": "-", "label": "Device_Name Lock(27)"},
+    "device_type": {"color": "green", "linestyle": "--", "label": "Device_Type Lock(10)"},
+    "room": {"color": "red", "linestyle": "-.", "label": "Room Lock(6)"},
+    "home": {"color": "purple", "linestyle": ":", "label": "Home Lock(1)"},
 }
 
 # 存储数据
@@ -64,8 +64,8 @@ main_y_ticks = np.arange(0, main_max_time + 0.5, 0.5)  # 主图刻度间隔为 0
 ax.set_yticks(main_y_ticks)
 
 # 图表标题和标签
-plt.title("Average Lock Apply Time vs. Lock Apply Total Numbers", fontsize=14)
-ax.set_xlabel("Number of Rules", fontsize=12)
+plt.title("Average Lock Apply Time For Different Mutex Type", fontsize=14)
+ax.set_xlabel("Lock Appy Total Numbers", fontsize=12)
 ax.set_ylabel("Average Lock Apply Time for Room, Device_Type, Device_Name (s)", fontsize=12)
 plt.xticks(rule_counts, fontsize=10)
 ax.tick_params(axis='y', labelsize=10)

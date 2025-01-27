@@ -1,6 +1,6 @@
 import random
 import threading
-from time import sleep
+from time import sleep, time
 from Detector.Mutex.LLSC import RuleSet
 import RuleSet
 import StatusMapping
@@ -15,38 +15,35 @@ class FIFOLock:
 
     def async_acquire(self):
         """
-        异步申请锁，只提交申请，返回一个事件用于后续轮询检查锁是否成功获取。
+        异步申请锁：返回一个 event，后续 try_acquire(event) 判断自己是否获取到锁。
         """
         event = threading.Event()
         with self.lock:
             self.queue.append(event)
-            # 通知所有等待线程队列已更新
             self.condition.notify_all()
         return event
 
     def try_acquire(self, event):
         """
-        尝试获取锁：
-          - 如果自己在队首，
-          - 且当前没有其它线程持有锁(self.owner为None)，
-          - 则获取成功，成为锁拥有者(self.owner=event)，并出队返回 True；
-          - 否则返回 False。
+        如果自己在队首且锁无人持有，则获取锁并返回 True，否则返回 False。
         """
         with self.lock:
-            # 如果队列不空, 且队首正好是自己的 event, 且锁还没人持有
             if self.queue and self.queue[0] == event and self.owner is None:
                 self.owner = event
-                self.queue.pop(0)  # 弹出队首
+                self.queue.pop(0)
                 return True
         return False
 
     def release(self):
         """
-        释放锁，清除当前owner 并唤醒队列中的其他线程。
+        释放锁，清除当前 owner 并唤醒其他等待线程。
         """
         with self.lock:
             self.owner = None
             self.condition.notify_all()
+
+
+# -------------------
 # 全局状态字典
 device_status = {
     "Smoke": 0, "Location": 0, "WaterLeakage": 0, "MijiaCurtain1": 0, "MijiaCurtain2": 0,
@@ -58,133 +55,176 @@ device_status = {
     "SmartLifePIRmotionsensor2": 0, "SmartLifePIRmotionsensor3": 0, "MijiaPurifier": 0,
     "MijiaProjector": 0, "Notification": 0
 }
-device_status_lock = threading.Lock()  # 确保 device_status 的线程安全
+device_status_lock = threading.Lock()  # 用于保护 device_status 并发修改
 
-# 全局数组，用于记录规则执行的顺序
+# 记录规则执行的顺序
 execution_order = []
 
 # 全局设备锁字典
 device_locks = {device: FIFOLock() for device in device_status}
-lock_acquire_guard = threading.Lock()  # 全局锁，保护异步申请窗口
+# 用于在每次规则提交申请锁时，保证申请时的原子性
+lock_acquire_guard = threading.Lock()
+
+# 用于记录本轮每个线程执行时间
+thread_execution_times = []
+thread_execution_times_lock = threading.Lock()
 
 
 def execute_rule(rule):
     """
-    异步申请所有锁后执行规则
+    执行单条规则的线程函数。其主要流程：
+      1. 记录开始时间。
+      2. 依次申请所有所需的设备锁并获取。
+      3. 执行规则：更新 device_status, 随机 sleep, 记录执行顺序等。
+      4. 释放已获取的锁。
+      5. 记录结束时间，并将本线程的耗时写入共享列表。
     """
     ruleid = rule["RuleId"]
     trigger_device = rule["Trigger"]
     action_devices = rule["Action"]
-    condition_devices = rule.get("Condition", [])  # 获取 Condition，默认为空列表
+    condition_devices = rule.get("Condition", [])  # 条件设备(可选)
 
-    # 按字典序排序，避免死锁
+    # 1) 选出要获取锁的设备，并按字典序排序，避免死锁
     locks_to_acquire = sorted(
         [device for device in [trigger_device[0]]
-         + ([condition_devices[0]] if condition_devices else [])  # 确保 Condition 存在且非空
+         + ([condition_devices[0]] if condition_devices else [])
          + [action[0] for action in action_devices] if device in device_status]
     )
 
-    # 提交锁申请阶段
+    start_time = time()
+    # 2) 提交锁申请阶段
     events = {}
     with lock_acquire_guard:
         for device in locks_to_acquire:
             if device in device_locks:
                 events[device] = device_locks[device].async_acquire()
 
-    # 检查锁申请结果
+    # 3) 轮询尝试获取锁，直到全部获取成功
     acquired_locks = set()
     while True:
         for device, event in events.items():
             if device not in acquired_locks and device_locks[device].try_acquire(event):
-                acquired_locks.add(device)  # 锁成功获取
-
-        # 所有锁成功获取后退出
+                acquired_locks.add(device)
         if len(acquired_locks) == len(locks_to_acquire):
             break
 
     try:
-        sleep(random.uniform(1.5, 2))
+        # 模拟执行
+        sleep(random.uniform(1, 2))
 
-        # 更新全局状态字典
+        # 更新全局状态
         with device_status_lock:
-            # 更新 trigger_device 的状态
+            # 更新 trigger_device 状态
             if trigger_device[0] in device_status:
                 device_status[trigger_device[0]] = trigger_device[1]
 
-            # 更新 action_device 的状态
+            # 更新 action_devices 状态
             for action in action_devices:
                 if action[0] in device_status:
                     device_status[action[0]] = action[1]
 
-            # 模拟规则执行
             print(f"Executing rule {ruleid}...")
+
             execution_order.append(ruleid)
+            end_time = time()
 
     finally:
-        # 释放所有已申请的锁
+        # 4) 释放锁
         for device in acquired_locks:
             device_locks[device].release()
+
+        # 5) 记录线程执行时间
+        exec_time = end_time - start_time
+        with thread_execution_times_lock:
+            thread_execution_times.append(exec_time)
 
 
 def execute_all_rules_concurrently(rules):
     """
-    并发执行所有规则
+    并发执行所有规则，并返回所有线程执行时间的平均值(avg_thread_time)。
     """
     threads = []
 
-    # 为每条规则创建一个线程
     for rule in rules:
         thread = threading.Thread(target=execute_rule, args=(rule,))
         threads.append(thread)
         thread.start()
 
-    # 等待所有线程完成
+    # 等待所有线程结束
     for thread in threads:
         thread.join()
 
+    # 输出当前轮所有线程的耗时列表（可选）
+    print("execution times:", thread_execution_times)
 
-def find_conflict_reverse_pairs(execution_order):
+    # 计算并返回每个线程的平均执行时长
+    with thread_execution_times_lock:
+        total_time = sum(thread_execution_times)
+        count = len(thread_execution_times)
+    avg_thread_time = (total_time / count) if count else 0.0
+
+    return avg_thread_time
+
+
+def find_conflict_reverse_pairs(order):
     """
-    检测 execution_order 中的冲突逆序对
+    检测 execution_order 中的冲突逆序对。
     """
-    # 获取冲突对字典
     conflict_dict = StatusMapping.find_rule_conflicts(RuleSet.get_all_rules())
 
-    # 记录冲突逆序对
     conflict_reverse_pairs = []
-
-    # 遍历 execution_order 中的所有逆序对
-    n = len(execution_order)
+    n = len(order)
     for i in range(n):
-        for j in range(i + 1, n):  # 只看后面的规则，形成逆序对
-            rule_i = execution_order[i]
-            rule_j = execution_order[j]
-
-            # 检测是否为逆序对 (rule_j 比 rule_i 早完成，但启动顺序晚)
+        for j in range(i + 1, n):
+            rule_i = order[i]
+            rule_j = order[j]
             if rule_j < rule_i:
-                # 对于找到的逆序对，要以小的id作为key值，检查大的id是否影响了小的id的规则
                 if rule_i in conflict_dict.get(rule_j, set()):
                     conflict_reverse_pairs.append((rule_i, rule_j))
-
     return conflict_reverse_pairs
 
-# 获取所有规则
-rules = RuleSet.Group1
-# 并发执行规则
-execute_all_rules_concurrently(rules)
-# execution_order 和冲突检测
-conflict_reverse_pairs = find_conflict_reverse_pairs(execution_order)
 
-# 打印最终设备状态
-print("\nFinal Device Status (With Device Locks):")
-for device, state in device_status.items():
-    print(f"{device}: {state}")
+def run_experiment():
+    """
+    对 1~5 组规则各执行 20 轮实验。
+    - conflict_file   -> 每轮的冲突数量
+    - time_file       -> 每轮的平均线程执行时间
+    - detail_file     -> 每轮的全部线程执行时间列表（用于后续分析/绘图）
+    """
+    base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\LLSC\Data\LockWith"
 
-# 打印规则执行顺序
-print("\nExecution Order:")
-print(execution_order)
+    for group_number in range(1, 6):
+        group_rules = getattr(RuleSet, f"Group{group_number}")
+        conflict_file = f"{base_path}\\num_lockwith_group_{group_number}.txt"
+        time_file = f"{base_path}\\time_lockwith_group_{group_number}.txt"
 
-# 打印冲突逆序对和数量
-print("\nConflict Reverse Pairs:")
-print(conflict_reverse_pairs)
-print(f"\nTotal Number of Conflict Reverse Pairs: {len(conflict_reverse_pairs)}")
+        with open(conflict_file, "w") as conflict_output, \
+             open(time_file, "w") as time_output:
+
+            for round_number in range(20):
+                # ----重置全局变量----
+                global device_status, execution_order, thread_execution_times
+                device_status = {key: 0 for key in device_status}
+                execution_order = []
+                thread_execution_times = []
+
+                # ----执行规则并计算平均线程执行时间----
+                avg_thread_time = execute_all_rules_concurrently(group_rules)
+
+                # ----统计冲突对----
+                conflict_reverse_pairs = find_conflict_reverse_pairs(execution_order)
+                conflict_count = len(conflict_reverse_pairs)
+
+                # ----把冲突数量写入对应文件----
+                conflict_output.write(f"{conflict_count}\n")
+
+                # 你可以用逗号/空格分隔，也可以写成 JSON 格式，总之能被后续解析即可
+                times_str = ",".join(f"{t:.4f}" for t in thread_execution_times)
+                time_output.write(times_str + "\n")
+
+                print(f"Group {group_number}, Round {round_number + 1}: "
+                      f"{conflict_count} conflicts")
+
+
+if __name__ == "__main__":
+    run_experiment()

@@ -1,6 +1,6 @@
 import random
 import threading
-from time import sleep
+from time import sleep, time
 
 from Detector.Mutex.LLSC import RuleSet
 import RuleSet
@@ -19,43 +19,49 @@ device_status = {
 }
 device_status_lock = threading.Lock()  # 确保 device_status 的线程安全
 
-# 全局数组，用于记录规则执行的顺序
+# 记录规则执行的顺序
 execution_order = []
+
+# （新增）记录每个线程执行时间的列表 + 互斥锁保护
+thread_execution_times = []
 
 
 def execute_rule_without_lock(rule):
     """
-    执行单条规则，不申请设备锁。
+    执行单条规则，不申请设备锁，但依然记录开始、结束时间，用于统计线程执行时间。
     """
     ruleid = rule["RuleId"]
     trigger_device = rule["Trigger"]
     action_devices = rule["Action"]
 
+    start_time = time()
     try:
-        # 模拟规则执行
+        # 模拟规则执行（不加锁）
         print(f"Executing rule {ruleid}...")
-        sleep(random.uniform(1.5, 2))
+        sleep(random.uniform(1, 2))
 
-        # 更新全局状态字典
-        with device_status_lock:  # 保留状态更新锁
-            # 更新 trigger_device 的状态
+        # 更新全局状态字典（仅用 device_status_lock 来保护状态写操作）
+        with device_status_lock:
             if trigger_device[0] in device_status:
                 device_status[trigger_device[0]] = trigger_device[1]
 
-            # 更新 action_device 的状态
             for action in action_devices:
                 if action[0] in device_status:
                     device_status[action[0]] = action[1]
 
             # 记录规则执行顺序
             execution_order.append(ruleid)
-    except Exception as e:
-        print(f"Error executing rule {ruleid}: {e}")
+
+    finally:
+        # 记录线程执行时间
+        end_time = time()
+        exec_time = end_time - start_time
+        thread_execution_times.append(exec_time)
 
 
 def execute_all_rules_concurrently_without_lock(rules):
     """
-    并发执行所有规则，不申请设备锁。
+    并发执行所有规则（无锁），返回平均线程执行时间。
     """
     threads = []
 
@@ -69,25 +75,29 @@ def execute_all_rules_concurrently_without_lock(rules):
     for thread in threads:
         thread.join()
 
+    # 输出当前轮所有线程的耗时列表（可选）
+    print("execution times:", thread_execution_times)
+
+    # 计算并返回每个线程的平均执行时长
+    total_time = sum(thread_execution_times)
+    count = len(thread_execution_times)
+    avg_thread_time = (total_time / count) if count else 0.0
+
+    return avg_thread_time
+
 
 def find_conflict_reverse_pairs(execution_order):
     """
     检测 execution_order 中的冲突逆序对
     """
-    # 获取冲突对字典
     conflict_dict = StatusMapping.find_rule_conflicts(RuleSet.get_all_rules())
 
-    # 记录冲突逆序对
     conflict_reverse_pairs = []
-
-    # 遍历 execution_order 中的所有逆序对
     n = len(execution_order)
     for i in range(n):
-        for j in range(i + 1, n):  # 只看后面的规则，形成逆序对
+        for j in range(i + 1, n):
             rule_i = execution_order[i]
             rule_j = execution_order[j]
-
-            # 检测是否为逆序对 (rule_j 比 rule_i 早完成，但启动顺序晚)
             if rule_j < rule_i:
                 # 对于找到的逆序对，要以小的id作为key值，检查大的id是否影响了小的id的规则
                 if rule_i in conflict_dict.get(rule_j, set()):
@@ -96,24 +106,42 @@ def find_conflict_reverse_pairs(execution_order):
     return conflict_reverse_pairs
 
 
-# 获取所有规则
-rules = RuleSet.Group1
-# 并发执行规则
-execute_all_rules_concurrently_without_lock(rules)
-# execution_order 和冲突检测
-conflict_reverse_pairs = find_conflict_reverse_pairs(execution_order)
+def run_experiment():
+    """
+    在 LockOut 模式下，对 1~5 组规则各执行 20 轮实验，将每轮的执行时间列表写入文件。
+    """
+    base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\LLSC\Data\LockOut"
 
-# 打印最终设备状态
-print("\nFinal Device Status (Without Device Locks):")
-for device, state in device_status.items():
-    print(f"{device}: {state}")
+    for group_number in range(1, 6):
+        group_rules = getattr(RuleSet, f"Group{group_number}")
+        conflict_file = f"{base_path}\\num_lockout_group_{group_number}.txt"
+        time_file = f"{base_path}\\time_lockout_group_{group_number}.txt"
 
-# 打印规则执行顺序
-print("\nExecution Order:")
-print(execution_order)
+        with open(conflict_file, "w") as conflict_output, open(time_file, "w") as time_output:
+            for round_number in range(20):  # 每组执行20轮
+                global device_status, execution_order, thread_execution_times
+                # 重置全局变量
+                device_status = {key: 0 for key in device_status}
+                execution_order = []
+                thread_execution_times = []
+
+                # 并发执行所有规则(无锁)，并计算平均执行时间
+                avg_thread_time = execute_all_rules_concurrently_without_lock(group_rules)
+
+                # 找到冲突逆序对
+                conflict_reverse_pairs = find_conflict_reverse_pairs(execution_order)
+                conflict_count = len(conflict_reverse_pairs)
+
+                # 写入冲突数量
+                conflict_output.write(f"{conflict_count}\n")
+
+                # 将本轮所有线程执行时间(逗号分隔)写入文件
+                times_str = ",".join(f"{t:.4f}" for t in thread_execution_times)
+                time_output.write(times_str + "\n")
+
+                print(f"Group {group_number}, Round {round_number + 1}: "
+                      f"{conflict_count} conflicts")
 
 
-# 打印冲突逆序对和数量
-print("\nConflict Reverse Pairs:")
-print(conflict_reverse_pairs)
-print(f"\nTotal Number of Conflict Reverse Pairs: {len(conflict_reverse_pairs)}")
+if __name__ == "__main__":
+    run_experiment()
