@@ -81,7 +81,7 @@ def plot_box_lockfree():
 
     # ========== 动态设置 y 轴刻度 ==========
     max_val = max(max(g_times) for g_times in data_for_5_groups)
-    step = 2
+    step = 1
     import numpy as np
     y_ticks = np.arange(0, max_val + step, step)
     plt.yticks(y_ticks)
