@@ -6,7 +6,7 @@ from time import sleep, time
 
 import mysql
 import RuleSet
-from DataBase import insert_log, clear_table
+from DBMyISAM import insert_log, clear_table
 from Detector.Mutex.LLSC import StatusMapping
 
 # 定义设备状态的初始值（硬编码为 0）
@@ -108,7 +108,7 @@ def get_device_status():
 
         # 按时间戳升序读取日志记录
         cursor.execute("""
-            SELECT * FROM rule_execution_log
+            SELECT * FROM rule_execution_log_myisam
             WHERE status = TRUE
             ORDER BY logid ASC
         """)
@@ -157,7 +157,7 @@ def get_execution_order():
 
         # 查询 status = TRUE 的日志，并按时间戳排序
         cursor.execute("""
-            SELECT ruleid FROM rule_execution_log
+            SELECT ruleid FROM rule_execution_log_myisam
             WHERE status = TRUE
             ORDER BY logid ASC
         """)
