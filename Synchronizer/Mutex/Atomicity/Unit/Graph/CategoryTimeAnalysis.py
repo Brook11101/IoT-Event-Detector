@@ -7,7 +7,7 @@ import numpy as np
 # 用于验证在RealUser规则集下互斥锁的不同粒度对于申请锁所需时间的画图
 
 # 文件路径
-base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\Atomicity\Unit\Data"
+base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\Mutex\Atomicity\Unit\Data"
 dirpath = {'device_name':'\DeviceName','device_type':'\DeviceType','room':'\Room','home':'\Home'}
 
 file_prefixes = ["device_name", "device_type", "room", "home"]

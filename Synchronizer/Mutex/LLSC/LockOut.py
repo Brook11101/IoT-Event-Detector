@@ -2,7 +2,6 @@ import random
 import threading
 from time import sleep, time
 
-from Detector.Mutex.LLSC import RuleSet
 import RuleSet
 import StatusMapping
 
@@ -110,7 +109,7 @@ def run_experiment():
     """
     在 LockOut 模式下，对 1~5 组规则各执行 20 轮实验，将每轮的执行时间列表写入文件。
     """
-    base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\LLSC\Data\LockOut"
+    base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\Mutex\LLSC\Data\LockOut"
 
     for group_number in range(1, 6):
         group_rules = getattr(RuleSet, f"Group{group_number}")

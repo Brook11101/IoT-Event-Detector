@@ -37,7 +37,7 @@ def plot_box_lockwith():
       - 所有箱子使用统一颜色 (不区分组)
       - 添加图例说明 (Box / Median / Mean / Outliers)
     """
-    base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\LLSC\Data\LockWith"
+    base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\Mutex\LLSC\Data\LockWith"
 
     conflict_labels = [20, 40, 60, 80, 100]
 

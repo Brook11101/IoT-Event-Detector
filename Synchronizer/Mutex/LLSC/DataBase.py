@@ -1,13 +1,9 @@
-import random
-from time import sleep, time
+from time import time
 
 import mysql.connector
 import json
 from mysql.connector import Error
 import StatusMapping
-from datetime import datetime
-
-from Detector.Mutex.LLSC import RuleSet
 
 
 # 连接到 MySQL 数据库

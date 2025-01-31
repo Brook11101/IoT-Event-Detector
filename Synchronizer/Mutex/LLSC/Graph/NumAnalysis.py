@@ -4,9 +4,9 @@ import numpy as np
 
 # 配置路径和方案名称
 base_paths = {
-    "LockOut": r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\LLSC\Data\LockOut",
-    "LockWith": r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\LLSC\Data\LockWith",
-    "LockFree": r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\LLSC\Data\LockFree",
+    "LockOut": r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\Mutex\LLSC\Data\LockOut",
+    "LockWith": r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\Mutex\LLSC\Data\LockWith",
+    "LockFree": r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\Mutex\LLSC\Data\LockFree",
 }
 group_potential_conflicts = [20, 40, 60, 80, 100]  # 横轴：组号对应的潜在互斥冲突数量
 

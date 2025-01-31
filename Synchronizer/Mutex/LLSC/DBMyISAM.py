@@ -4,9 +4,7 @@ import mysql.connector
 from mysql.connector import Error
 import json
 
-import random
-
-from Detector.Mutex.LLSC import StatusMapping
+from Synchronizer.Mutex.LLSC import StatusMapping
 
 
 # 连接到 MySQL 数据库

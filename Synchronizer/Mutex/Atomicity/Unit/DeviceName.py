@@ -177,7 +177,7 @@ if __name__ == "__main__":
     rule_groups = group_rules_by_lock_count(labeled_rules, lock_targets)
 
     rounds = 10
-    output_base_dir = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\Atomicity\Unit\Data\DeviceName"
+    output_base_dir = r"/Synchronizer/Mutex/Atomicity/Unit/Data/DeviceName"
     username = "2844532281"
     password = "whd123456"
     connector = XiaomiCloudConnector(username, password)

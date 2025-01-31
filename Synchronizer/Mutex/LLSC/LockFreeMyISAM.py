@@ -1,13 +1,12 @@
 import json
 import random
 import threading
-from datetime import datetime
 from time import sleep, time
 
 import mysql
 import RuleSet
 from DBMyISAM import insert_log, clear_table
-from Detector.Mutex.LLSC import StatusMapping
+from Synchronizer.Mutex.LLSC import StatusMapping
 
 # 定义设备状态的初始值（硬编码为 0）
 deviceStatus = {
@@ -201,7 +200,7 @@ def run_experiment():
     LockFree 模式下的实验。
     每组规则执行 20 轮，每轮记录冲突数量到 conflict_file，记录所有线程执行时间到 time_file。
     """
-    base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\LLSC\Data\LockFree"
+    base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\Mutex\LLSC\Data\LockFree"
 
     for group_number in range(1, 6):
         # 获取对应分组规则

@@ -1,7 +1,6 @@
 import random
 import threading
 from time import sleep, time
-from Detector.Mutex.LLSC import RuleSet
 import RuleSet
 import StatusMapping
 
@@ -191,7 +190,7 @@ def run_experiment():
     - time_file       -> 每轮的平均线程执行时间
     - detail_file     -> 每轮的全部线程执行时间列表（用于后续分析/绘图）
     """
-    base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Detector\Mutex\LLSC\Data\LockWith"
+    base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\Mutex\LLSC\Data\LockWith"
 
     for group_number in range(1, 6):
         group_rules = getattr(RuleSet, f"Group{group_number}")
