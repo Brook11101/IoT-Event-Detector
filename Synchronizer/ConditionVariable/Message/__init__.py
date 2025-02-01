@@ -1,5 +1,6 @@
 import os
 import subprocess
+import threading
 
 from rocketmq.client import Producer, Message, PushConsumer
 
@@ -52,7 +53,7 @@ def send_message(rule_name, topic, key, body):
 
     try:
         ret = producer.send_sync(msg)
-        print(f"[{rule_name}] 发送消息成功 -> Topic: {topic}, Key: {key}, 结果: {ret.status}")
+        print(f"[{rule_name}] 发送消息成功 -> Topic: {topic}, Key: {key}, Body: {body}, 结果: {ret.status}")
     except Exception as e:
         print(f"[{rule_name}] 发送消息失败: {e}")
 
@@ -74,9 +75,11 @@ def consume_messages_from_offset(rule_name, topic, key, offset=0):
     consumer.subscribe(topic, "*")
 
     active_rules = set()  # 维护活动的 RuleId 集合
+    messages_received = threading.Event()  # 用于检测是否收到消息
 
     def callback(msg):
         try:
+            messages_received.set()  # 标记已收到消息
             message_body = msg.body.decode("utf-8")
             rule_id = int(message_body)  # 假设 body 里存储的是 RuleId
 
@@ -101,3 +104,46 @@ def consume_messages_from_offset(rule_name, topic, key, offset=0):
     consumer.start()
 
     print(f"[{rule_name}] 正在消费 Topic '{topic}' 的 Key '{key}' 的消息...")
+
+    # 等待一段时间，如果没有消费到消息，则关闭消费者
+    if not messages_received.wait(timeout=10):  # 等待10秒
+        print(f"[{rule_name}] 未消费到任何消息，关闭消费者...")
+        consumer.shutdown()
+
+
+def get_max_offset_map():
+    """
+    获取所有 Topic 唯一队列的 Max Offset，并存入字典。
+    :return: maxOffsetMap 字典，Key 为 Topic，Value 为 Max Offset。
+    """
+    maxOffsetMap = {}
+
+    for device in RuleSet.DeviceName:
+        topic_name = f"Topic_{device}"
+
+        # 使用 `mqadmin topicStatus` 查询 Topic 详情
+        cmd = [
+            "cmd", "/c", MQADMIN_PATH, "topicStatus",
+            "-n", NAMESRV_ADDR,
+            "-t", topic_name
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            output = result.stdout.split("\n")
+
+            for line in output:
+                if "Max Offset:" in line:
+                    max_offset = int(line.split(":")[1].strip())
+                    maxOffsetMap[topic_name] = max_offset
+                    print(f"{topic_name} 的 Max Offset: {max_offset}")
+                    break  # 只取第一个队列的 Max Offset（假设每个 Topic 只有一个队列）
+
+        except subprocess.CalledProcessError as e:
+            print(f"查询 {topic_name} 失败: {e}")
+
+    return maxOffsetMap
+
+# 示例调用
+max_offset_map = get_max_offset_map()
+print("所有 Topic 的 Max Offset:", max_offset_map)
