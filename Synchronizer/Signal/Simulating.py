@@ -63,106 +63,104 @@ def updateOfficeStatus(office):
 
     return ans
 
-def runRules(office, triggers, rules, rule_id_start):
-    """
-    - 根据当前触发器 triggers 在所有规则中找到可执行的规则。
-    - 随机顺序执行可执行规则，如果 condition 不满足则标记为 skipped，否则 run。
-    - 修改 office 状态并记录日志到 execution_logs.txt。返回本次新增的 logs + 下一个可用 rule_id。
-    """
-    triggerIdMap = {}
-    epoch = 0
+def runRules(office, Triggers, rules, id):
+    # triggers = [[“time”：xx]， [“temxxx”：xx]]
+    # [{id,status,time,rules, "triggerId", "actionIds", "ancestor"}]
+    # 维护一个家庭状态， 维护一个Triggers 和 tirggerId,
+    # 找到所有当前可能执行的规则，随机挑选执行，判断condition是否满足，如果不满足就是skipped，如果满足就修改office状态，把action加入到新的Triggers并给出triggerId。
+
+    triggerId = {}
+    eporch = 0
     logs = []
-    current_time = int(office["time"])
-    actions_buffer = []
-    actionIdMap = {}
+    time = int(office["time"])
+    Actions = []
+    actionId = {}
+    logfile = open("execution_logs.txt", "a", encoding="utf-8")
+    rulesCountPerEpoch = []
 
-    # 初始化 triggerIdMap
-    for trig in triggers:
-        triggerIdMap[str(trig)] = 0
 
-    # 以追加模式写日志
-    with open("execution_logs.txt", "a", encoding="utf-8") as logfile:
-        # 在这里我们限制多轮触发次数，避免无限触发
-        while triggers and epoch < 5:
-            potential_rules = findPotentialRules(triggers, rules)
-            # 随机打乱这些可能执行的规则
-            potential_rules = np.random.choice(potential_rules, len(potential_rules), replace=False)
+    for i in range(len(Triggers)):
+        triggerId[str(Triggers[i])] = 0
 
-            for rule in potential_rules:
-                # 如果有 condition，需要判断是否满足
-                if rule['Condition']:
-                    cond_dev, cond_state = rule['Condition'][0], rule['Condition'][1]
-                    # time类型和普通设备状态做不同判断
-                    if ((cond_dev == 'time' and int(cond_state) != current_time)
-                        or (cond_dev != 'time' and office[cond_dev] != cond_state)):
-                        # 条件不满足 => skipped
-                        log_entry = makeLogEntry(
-                            rule, rule_id_start, "skipped", current_time,
-                            triggerIdMap.get(str(rule["Trigger"]), 0)
-                        )
-                        logs.append(log_entry)
-                        logfile.write(str(log_entry)+"\n")
-                        rule_id_start += 1
-                        continue
+    while len(Triggers) != 0 and eporch < 5:
+        potentialRules = findPotentialRules(Triggers, rules)
+        # 随机打乱，不放回抽样
+        potentialRules = np.random.choice(potentialRules, len(potentialRules), False)
+        round_rule_count = len(potentialRules)
+        rulesCountPerEpoch.append(round_rule_count)
 
-                # 条件满足或无条件 => run
-                log_entry = makeLogEntry(
-                    rule, rule_id_start, "run", current_time,
-                    triggerIdMap.get(str(rule["Trigger"]), 0)
-                )
-                logs.append(log_entry)
-                logfile.write(str(log_entry)+"\n")
+        for rule in potentialRules:
+            # 条件不满足，跳过执行
+            if len(rule['Condition'])  != 0 and ((rule['Condition'][0] == 'time' and int(rule['Condition'][1]) != int(office["time"])) or office[rule['Condition'][0]] != rule['Condition'][1]):
+                temp = copy.copy(rule)
+                temp["id"] = id
+                temp["status"] = "skipped"
+                temp["time"] = time
+                if triggerId[str(rule["Trigger"])] == 0:
+                    temp["triggerId"] = id
+                else:
+                    temp["triggerId"] = triggerId[str(rule["Trigger"])]
+                temp["actionIds"] = []
+                temp["ancestor"] = ""
+                logs.append(temp)
+            else:
+                # 生成记录
+                temp = copy.copy(rule)
+                temp["id"] = id
+                temp["status"] = "run"
+                temp["time"] = time
+                # 没有triggerId就用当前的id，说明是一个新触发的trigger
+                if triggerId[str(rule["Trigger"])] == 0:
+                    temp["triggerId"] = id
+                    temp["ancestor"] = id
+                else:
+                    temp["triggerId"] = triggerId[str(rule["Trigger"])]
+                    temp["ancestor"] = ""
+                temp["actionIds"] = []
+                logs.append(temp)
 
-                # 执行动作
-                for act in rule["Action"]:
-                    office[act[0]] = act[1]
-                    actions_buffer.append(act)
-                    actionIdMap[str(act)] = rule_id_start
+                # 添加新的Action
+                for item in rule["Action"]:
+                    # 动作执行，修改房间状态
+                    office[item[0]] = item[1]
+                    Actions.append(item)
+                    actionId[str(item)] = id
+            id += 1
 
-                rule_id_start += 1
+        Triggers = Actions
+        triggerId = actionId
+        Actions = []
+        actionId = {}
+        eporch += 1
 
-            # 本轮执行完，把 actions_buffer 当做下一轮的 triggers
-            triggers = actions_buffer
-            triggerIdMap = actionIdMap
-            actions_buffer = []
-            actionIdMap = {}
-            epoch += 1
+    for log in logs:
+        if log["ancestor"] == "":
+            for i in range(len(logs)):
+                if logs[i]["id"] == log["triggerId"]:
+                    log["ancestor"] = logs[i]["ancestor"]
 
-        # 回填 ancestor 信息（仅在本批 logs 内做追溯）
-        for log_item in logs:
-            if log_item["ancestor"] == "":
-                ancestor_id = log_item["triggerId"]
-                for item in logs:
-                    if item["id"] == ancestor_id:
-                        log_item["ancestor"] = item["ancestor"]
 
-    return logs, rule_id_start
+    start_idx = 0
+    for idx, count in enumerate(rulesCountPerEpoch):
+        end_idx = start_idx + count
+        # 写这一轮
+        for j in range(start_idx, end_idx):
+            logfile.write(str(logs[j]) + "\n")
 
-def makeLogEntry(rule, cur_id, status, current_time, trigger_id):
+        # 轮次间插入空行
+        logfile.write("\n")
+        start_idx = end_idx
+
+    logfile.close()
+    return logs, id
+
+def findPotentialRules(Triggers, rules):
     """
-    生成一条日志字典，包含id、status、time、triggerId、ancestor等字段
-    """
-    temp = copy.copy(rule)
-    temp["id"] = cur_id
-    temp["status"] = status
-    temp["time"] = current_time
-
-    # 判断 triggerId 和 ancestor
-    if trigger_id == 0:
-        temp["triggerId"] = cur_id  # 说明是一个新触发
-        temp["ancestor"] = cur_id
-    else:
-        temp["triggerId"] = trigger_id
-        temp["ancestor"] = ""
-    return temp
-
-def findPotentialRules(triggers, rules):
-    """
-    从所有规则里选出 Trigger 在当前 triggers 里的规则
+    用于筛选：触发器(Triggers)里出现的 => 哪些规则可执行
     """
     potential_rules = []
     for rule in rules:
-        if rule["Trigger"] in triggers:
+        if rule["Trigger"] in Triggers:
             potential_rules.append(rule)
     return potential_rules
 
