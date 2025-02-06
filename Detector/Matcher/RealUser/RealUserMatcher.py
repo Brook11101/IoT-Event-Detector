@@ -252,7 +252,7 @@ def runRules(office, Triggers, rules, id):
                     Actions.append(item)
                     actionId[str(item)] = id
             id += 1
-        # 攻防转换
+
         Triggers = Actions
         triggerId = actionId
         Actions = []

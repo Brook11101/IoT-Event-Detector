@@ -1,6 +1,6 @@
 import time
 import redis
-from Synchronizer.ConditionVariable import RuleSet
+from Synchronizer.Signal import RuleSet
 
 # Redis 连接配置（请根据实际情况修改）
 redis_host = '114.55.74.144'
