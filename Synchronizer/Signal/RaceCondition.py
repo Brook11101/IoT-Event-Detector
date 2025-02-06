@@ -203,17 +203,17 @@ def detector(logs):
                     for LatterAct in LatterActions:
                         if LatterAct in formerActions:
                             ConditionBypassNum += 1
-                            rc_file.write("Condition Bypass\n")
-                            rc_file.write(str(logs[j]) + "\n")
-                            rc_file.write(str(logs[i]) + "\n\n")
+                            # rc_file.write("Condition Bypass\n")
+                            # rc_file.write(str(logs[j]) + "\n")
+                            # rc_file.write(str(logs[i]) + "\n\n")
                 for j in range(i+1, len(logs)):
                     formerActions = logs[j]["Action"]
                     for LatterAct in LatterActions:
                         if LatterAct in formerActions:
                             ConditionBypassNum += 1
-                            rc_file.write("Condition Bypass\n")
-                            rc_file.write(str(logs[j]) + "\n")
-                            rc_file.write(str(logs[i]) + "\n\n")
+                            # rc_file.write("Condition Bypass\n")
+                            # rc_file.write(str(logs[j]) + "\n")
+                            # rc_file.write(str(logs[i]) + "\n\n")
 
                 # Condition Block：(示例中只判断单条件)
                 if logs[i]['Condition']:
@@ -238,16 +238,16 @@ def detector(logs):
                         # Action Loop: 前面是否有相同的 Action，且在一条链上 (id == front_id)
                         if LatterAct in formerActions and logs[j]["id"] == front_id:
                             ActionLoopNum += 1
-                            rc_file.write("Action Loop\n")
-                            rc_file.write(str(logs[j]) + "\n")
-                            rc_file.write(str(logs[i]) +"\n\n")
+                            # rc_file.write("Action Loop\n")
+                            # rc_file.write(str(logs[j]) + "\n")
+                            # rc_file.write(str(logs[i]) +"\n\n")
 
                         # Action Repetition: 前面是否有相同的 Action，且在一个祖宗上
                         elif LatterAct in formerActions and logs[j]["ancestor"] == logs[i]["ancestor"]:
                             ActionRepetitionNum += 1
-                            rc_file.write("Action Repetition\n")
-                            rc_file.write(str(logs[j]) + "\n")
-                            rc_file.write(str(logs[i]) + "\n\n")
+                            # rc_file.write("Action Repetition\n")
+                            # rc_file.write(str(logs[j]) + "\n")
+                            # rc_file.write(str(logs[i]) + "\n\n")
                         else:
                             # 遍历 formerActions 判断是否同设备不同状态
                             for formerAct in formerActions:
@@ -256,9 +256,9 @@ def detector(logs):
                                     and logs[j]["id"] == front_id
                                     and LatterAct[1] != formerAct[1]):
                                     ActionRevertNum += 1
-                                    rc_file.write("Action Revert\n")
-                                    rc_file.write(str(logs[j]) + "\n")
-                                    rc_file.write(str(logs[i]) + "\n\n")
+                                    # rc_file.write("Action Revert\n")
+                                    # rc_file.write(str(logs[j]) + "\n")
+                                    # rc_file.write(str(logs[i]) + "\n\n")
 
                                 # Action Conflict: 相同设备 & 不同状态 & 在同一祖宗上
                                 elif (LatterAct[0] == formerAct[0]
@@ -287,9 +287,9 @@ def detector(logs):
                         if (logs[i]['Condition'][0] == logs[j]['Condition'][0]
                             and logs[i]['Condition'][1] != logs[j]['Condition'][1]):
                             ConditionContradictoryNum += 1
-                            rc_file.write("Condition Contradictory\n")
-                            rc_file.write(str(logs[j]) + "\n")
-                            rc_file.write(str(logs[i]) + "\n\n")
+                            # rc_file.write("Condition Contradictory\n")
+                            # rc_file.write(str(logs[j]) + "\n")
+                            # rc_file.write(str(logs[i]) + "\n\n")
 
                     # 更新前置链条: 把 j 条 rule 的 triggerId 继续往上追溯
                     if logs[j]["id"] == front_id:
@@ -307,9 +307,7 @@ def detector(logs):
                             rc_file.write(str(logs[j]) + "\n")
                             rc_file.write(str(logs[i]) + "\n\n")
 
-    return (ActionLoopNum, ActionRepetitionNum, ActionRevertNum, ActionConflictNum,
-            unexpectedConflictNum, ConditionBypassNum, ConditionPassNum,
-            ConditionBlockNum, ConditionContradictoryNum)
+    return (ActionConflictNum, unexpectedConflictNum, ConditionPassNum, ConditionBlockNum)
 
 if __name__ == '__main__':
     # 初始场景
@@ -356,12 +354,9 @@ if __name__ == '__main__':
         pass
 
     # 累加各类冲突检测数量
-    total_AL = total_ARp = total_ARt = 0
     total_AC = total_uC = 0
-    total_CB_s = 0
     total_CP = 0
     total_CB_b = 0
-    total_CC = 0
 
     rule_id = 1
 
@@ -374,36 +369,21 @@ if __name__ == '__main__':
 
         print('冲突检查')
         (
-            ActionLoopNum,
-            ActionRepetitionNum,
-            ActionRevertNum,
             ActionConflictNum,
             unexpectedConflictNum,
-            ConditionBypassNum,
             ConditionPassNum,
             ConditionBlockNum,
-            ConditionContradictoryNum
         ) = detector(logs)
 
         # 累加
-        total_AL += ActionLoopNum
-        total_ARp += ActionRepetitionNum
-        total_ARt += ActionRevertNum
         total_AC += ActionConflictNum
         total_uC += unexpectedConflictNum
-        total_CB_s += ConditionBypassNum
         total_CP += ConditionPassNum
         total_CB_b += ConditionBlockNum
-        total_CC += ConditionContradictoryNum
 
     # 打印最终的检测统计
     print("=== 检测结果统计 ===")
-    print(f"Action Loop: {total_AL}")
-    print(f"Action Repetition: {total_ARp}")
-    print(f"Action Revert: {total_ARt}")
     print(f"Action Conflict: {total_AC}")
     print(f"unexpected Conflict: {total_uC}")
-    print(f"Condition Bypass: {total_CB_s}")
     print(f"Condition Pass: {total_CP}")
     print(f"Condition Block: {total_CB_b}")
-    print(f"Condition Contradictory: {total_CC}")
