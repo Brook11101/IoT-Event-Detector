@@ -169,145 +169,126 @@ def findPotentialRules(triggers, rules):
 
 def detector(logs):
     """
-    检测并统计各种冲突/现象：
-    1. Action Loop
-    2. Action Repetition
-    3. Action Revert
-    4. Action Conflict
-    5. unexpected Conflict
-    6. Condition Bypass
-    7. Condition Pass
-    8. Condition Block
-    9. Condition Contradictory
+    仅统计/记录 4 类冲突：
+      - Action Conflict (AC)
+      - Unexpected Conflict (UC)
+      - Condition Block (CBK)
+      - Condition Pass (CP)
+
+    并且避免重复日志：如果同一对 (former_rule.RuleId, latter_rule.RuleId, conflict_type)
+    已记录过，就不再重复输出或计数。
     """
 
-    ActionLoopNum = 0
-    ActionRepetitionNum = 0
-    ActionRevertNum = 0
-    ActionConflictNum = 0
-    unexpectedConflictNum = 0
-    ConditionBypassNum = 0
-    ConditionPassNum = 0
-    ConditionBlockNum = 0
-    ConditionContradictoryNum = 0
+    action_conflict_count = 0      # AC
+    unexpected_conflict_count = 0  # UC
+    condition_block_count = 0      # CBK
+    condition_pass_count = 0       # CP
+
+    # 用来去重的集合：存储 (former_rule.RuleId, latter_rule.RuleId, conflict_type)
+    logged_pairs = set()
 
     with open("race_condition.txt", "a", encoding="utf-8") as rc_file:
         for i in range(len(logs)):
-            LatterActions = logs[i]["Action"]
+            current_rule = logs[i]
+            current_actions = current_rule["Action"]
+            cur_rule_id = current_rule["RuleId"]    # 使用 RuleId 而非 id
 
-            # === 如果当前规则是 skipped 的 ===
-            if logs[i]['status'] == 'skipped':
-                # Condition Bypass：skipped的规则，前后有没有相同的Action
-                for j in range(i-1, -1, -1):
-                    formerActions = logs[j]["Action"]
-                    for LatterAct in LatterActions:
-                        if LatterAct in formerActions:
-                            ConditionBypassNum += 1
-                            # rc_file.write("Condition Bypass\n")
-                            # rc_file.write(str(logs[j]) + "\n")
-                            # rc_file.write(str(logs[i]) + "\n\n")
-                for j in range(i+1, len(logs)):
-                    formerActions = logs[j]["Action"]
-                    for LatterAct in LatterActions:
-                        if LatterAct in formerActions:
-                            ConditionBypassNum += 1
-                            # rc_file.write("Condition Bypass\n")
-                            # rc_file.write(str(logs[j]) + "\n")
-                            # rc_file.write(str(logs[i]) + "\n\n")
+            # ========== 1) Condition Block (CBK) ========== #
+            # 如果当前规则被 skipped 且有 Condition，则检查前面有没有修改对应设备
+            if current_rule['status'] == 'skipped' and current_rule.get('Condition'):
+                cond_dev, _ = current_rule['Condition'][0], current_rule['Condition'][1]
+                for j in range(i - 1, -1, -1):
+                    former_rule = logs[j]
+                    frm_rule_id = former_rule["RuleId"]
+                    former_actions = former_rule["Action"]
 
-                # Condition Block：(示例中只判断单条件)
-                if logs[i]['Condition']:
-                    for j in range(i - 1, -1, -1):
-                        formerActions = logs[j]["Action"]
-                        cond_dev, _ = logs[i]['Condition'][0], logs[i]['Condition'][1]
-                        for former in formerActions:
-                            if cond_dev == former[0]:
-                                ConditionBlockNum += 1
+                    for former_act in former_actions:
+                        if former_act[0] == cond_dev:
+                            # 构造一个标识元组 (前者RuleId, 后者RuleId, "CBK")
+                            pair_cbk = (frm_rule_id, cur_rule_id, "CBK")
+
+                            if pair_cbk not in logged_pairs:
+                                logged_pairs.add(pair_cbk)
+                                condition_block_count += 1
+
                                 rc_file.write("Condition Block\n")
-                                rc_file.write(str(logs[j]) + "\n")
-                                rc_file.write(str(logs[i]) + "\n\n")
+                                rc_file.write(str(former_rule) + "\n")
+                                rc_file.write(str(current_rule) + "\n\n")
+                            # 找到后即可 break，避免重复记录
+                            break
+                    else:
+                        # 内层 actions 没 break 就继续
+                        continue
+                    # 如果内层 break 表示已记录一次 -> 跳出 j-loop
+                    break
 
-            # === 如果当前规则是 run 的 ===
-            else:
-                # 从后往前找同链/同祖宗等信息
-                front_id = logs[i]["triggerId"]
-                for j in range(i-1, -1, -1):
-                    formerActions = logs[j]["Action"]
+            # ========== 2) 其他三个冲突只在 'run' 规则里检测 ========== #
+            if current_rule['status'] == 'run':
+                # ---- (A) Action Conflict / Unexpected Conflict ----
+                # 往前对比是否相同设备不同状态
+                front_id = current_rule["triggerId"]   # 用于追溯同一链，但你也可以按需删除
 
-                    for LatterAct in LatterActions:
-                        # Action Loop: 前面是否有相同的 Action，且在一条链上 (id == front_id)
-                        if LatterAct in formerActions and logs[j]["id"] == front_id:
-                            ActionLoopNum += 1
-                            # rc_file.write("Action Loop\n")
-                            # rc_file.write(str(logs[j]) + "\n")
-                            # rc_file.write(str(logs[i]) +"\n\n")
+                for j in range(i - 1, -1, -1):
+                    former_rule = logs[j]
+                    frm_rule_id = former_rule["RuleId"]
+                    former_actions = former_rule["Action"]
 
-                        # Action Repetition: 前面是否有相同的 Action，且在一个祖宗上
-                        elif LatterAct in formerActions and logs[j]["ancestor"] == logs[i]["ancestor"]:
-                            ActionRepetitionNum += 1
-                            # rc_file.write("Action Repetition\n")
-                            # rc_file.write(str(logs[j]) + "\n")
-                            # rc_file.write(str(logs[i]) + "\n\n")
-                        else:
-                            # 遍历 formerActions 判断是否同设备不同状态
-                            for formerAct in formerActions:
-                                # Action Revert: 相同设备 & 不同状态 & 在一条链上
-                                if (LatterAct[0] == formerAct[0]
-                                    and logs[j]["id"] == front_id
-                                    and LatterAct[1] != formerAct[1]):
-                                    ActionRevertNum += 1
-                                    # rc_file.write("Action Revert\n")
-                                    # rc_file.write(str(logs[j]) + "\n")
-                                    # rc_file.write(str(logs[i]) + "\n\n")
+                    for latter_act in current_actions:
+                        for former_act in former_actions:
+                            # 设备相同 & 状态不同
+                            if latter_act[0] == former_act[0] and latter_act[1] != former_act[1]:
+                                # 决定是 AC 还是 UC
+                                if former_rule["ancestor"] == current_rule["ancestor"]:
+                                    # 同祖先 -> Action Conflict
+                                    pair_ac = (frm_rule_id, cur_rule_id, "AC")
+                                    if pair_ac not in logged_pairs:
+                                        logged_pairs.add(pair_ac)
+                                        action_conflict_count += 1
 
-                                # Action Conflict: 相同设备 & 不同状态 & 在同一祖宗上
-                                elif (LatterAct[0] == formerAct[0]
-                                      and logs[j]["ancestor"] == logs[i]["ancestor"]
-                                      and LatterAct[1] != formerAct[1]):
-                                    ActionConflictNum += 1
-                                    rc_file.write("Action Conflict\n")
-                                    rc_file.write(str(logs[j]) + "\n")
-                                    rc_file.write(str(logs[i]) + "\n\n")
+                                        rc_file.write("Action Conflict\n")
+                                        rc_file.write(str(former_rule) + "\n")
+                                        rc_file.write(str(current_rule) + "\n\n")
+                                else:
+                                    # 不同祖先 -> unexpected Conflict
+                                    pair_uc = (frm_rule_id, cur_rule_id, "UC")
+                                    if pair_uc not in logged_pairs:
+                                        logged_pairs.add(pair_uc)
+                                        unexpected_conflict_count += 1
 
-                                # unexpected Conflict: 相同设备 & 不同状态 & 不在同一个祖宗
-                                elif (LatterAct[0] == formerAct[0]
-                                      and LatterAct[1] != formerAct[1]
-                                      and logs[j]["ancestor"] != logs[i]["ancestor"]):
-                                    unexpectedConflictNum += 1
-                                    rc_file.write("unexpected Conflict\n")
-                                    rc_file.write(str(logs[j]) + "\n")
-                                    rc_file.write(str(logs[i]) + "\n\n")
+                                        rc_file.write("unexpected Conflict\n")
+                                        rc_file.write(str(former_rule) + "\n")
+                                        rc_file.write(str(current_rule) + "\n\n")
 
-                    # Condition Contradictory:
-                    # 如果当前 rule 和之前 rule 的 condition 是同设备但状态相反，即互斥
-                    if (logs[i].get('Condition')
-                        and logs[j].get('Condition')
-                        and len(logs[i]['Condition']) == 2
-                        and len(logs[j]['Condition']) == 2):
-                        if (logs[i]['Condition'][0] == logs[j]['Condition'][0]
-                            and logs[i]['Condition'][1] != logs[j]['Condition'][1]):
-                            ConditionContradictoryNum += 1
-                            # rc_file.write("Condition Contradictory\n")
-                            # rc_file.write(str(logs[j]) + "\n")
-                            # rc_file.write(str(logs[i]) + "\n\n")
+                    # 如果需要基于 "triggerId" 来追溯同一条链，可以在这里更新 front_id
+                    # 但对 AC/UC 的判断其实不一定要依赖 front_id
 
-                    # 更新前置链条: 把 j 条 rule 的 triggerId 继续往上追溯
-                    if logs[j]["id"] == front_id:
-                        front_id = logs[j]["triggerId"]
+                    if former_rule["id"] == front_id:
+                        front_id = former_rule["triggerId"]
 
-                # Condition Pass: 如果当前 rule 有 condition,
-                # 检查前面有没有修改该条件的动作(或满足其动作).
-                if logs[i]['Condition']:
-                    cond_dev, cond_state = logs[i]['Condition'][0], logs[i]['Condition'][1]
+                # ---- (B) Condition Pass (CP) ----
+                # 如果当前 rule 有 condition，检查前面是否有 [cond_dev, cond_state] 的动作
+                if current_rule.get('Condition'):
+                    cond_dev, cond_state = current_rule['Condition'][0], current_rule['Condition'][1]
                     for j in range(i - 1, -1, -1):
-                        formerActions = logs[j]["Action"]
-                        if [cond_dev, cond_state] in formerActions:
-                            ConditionPassNum += 1
-                            rc_file.write("Condition Pass\n")
-                            rc_file.write(str(logs[j]) + "\n")
-                            rc_file.write(str(logs[i]) + "\n\n")
+                        former_rule = logs[j]
+                        frm_rule_id = former_rule["RuleId"]
+                        if [cond_dev, cond_state] in former_rule["Action"]:
+                            pair_cp = (frm_rule_id, cur_rule_id, "CP")
+                            if pair_cp not in logged_pairs:
+                                logged_pairs.add(pair_cp)
+                                condition_pass_count += 1
 
-    return (ActionConflictNum, unexpectedConflictNum, ConditionPassNum, ConditionBlockNum)
+                                rc_file.write("Condition Pass\n")
+                                rc_file.write(str(former_rule) + "\n")
+                                rc_file.write(str(current_rule) + "\n\n")
+                            break  # 只要找到一次即可（避免多次重复计入）
+
+    return (
+        action_conflict_count,      # AC
+        unexpected_conflict_count,  # UC
+        condition_pass_count,       # CP
+        condition_block_count       # CBK
+    )
 
 if __name__ == '__main__':
     # 初始场景
