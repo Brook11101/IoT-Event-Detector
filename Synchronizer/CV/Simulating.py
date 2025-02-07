@@ -1,7 +1,7 @@
 import copy
 import numpy as np
 
-from Synchronizer.Signal import RuleSet
+from Synchronizer.CV import RuleSet
 
 # 用于多次循环场景的次数
 times = 1
@@ -82,7 +82,7 @@ def runRules(office, Triggers, rules, id):
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
-    while len(Triggers) != 0 and eporch < 5:
+    while len(Triggers) != 0 and eporch < 10:
         potentialRules = findPotentialRules(Triggers, rules)
         # 随机打乱，不放回抽样
         potentialRules = np.random.choice(potentialRules, len(potentialRules), False)
