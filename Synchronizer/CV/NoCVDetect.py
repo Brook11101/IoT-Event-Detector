@@ -1,25 +1,30 @@
 import ast
+from Synchronizer.CV.Detecting import detect_standard_race_conditions
 
-def defineRaceConditionCase(logs):
+
+def read_nocv_logs(filename):
     """
-    仅统计/记录 4 类冲突：
-      - Action Conflict (AC)
-      - Unexpected Conflict (UC)
-      - Condition Block (CBK)
-      - Condition Pass (CP)
-
-    并且避免重复日志：如果同一对 (former_rule.id, latter_rule.id, conflict_type)
-    已记录过，就不再重复输出或计数。
+    读取 `nocv_logs.txt` 并解析成规则列表，保留执行顺序。
     """
+    logs = []
+    with open(filename, "r", encoding="utf-8") as f:
+        for line in f:
+            log_entry = ast.literal_eval(line.strip())  # 解析 JSON 格式的日志
+            logs.append(log_entry)
+    return logs
 
+def detectRaceCondition(logs):
+    """
+    复用 `detectRaceCondition` 逻辑，检测 `nocv_logs.txt` 里面的 AC、UC、CP、CBK。
+    """
     conflict_dict = {
         "AC": [],  # Action Conflict
         "UC": [],  # Unexpected Conflict
         "CBK": [],  # Condition Block
-        "CP": []   # Condition Pass
+        "CP": []    # Condition Pass
     }
 
-    logged_pairs = set()  # 记录 (former_rule.id, latter_rule.id, conflict_type)
+    logged_pairs = set()  # 记录已检测的 conflict pair
 
     for i in range(len(logs)):
         current_rule = logs[i]
@@ -37,7 +42,6 @@ def defineRaceConditionCase(logs):
                 for former_act in former_actions:
                     if former_act[0] == cond_dev:
                         pair_cbk = (frm_rule_id, cur_rule_id)
-
                         if pair_cbk not in logged_pairs:
                             logged_pairs.add(pair_cbk)
                             conflict_dict["CBK"].append(pair_cbk)
@@ -83,32 +87,53 @@ def defineRaceConditionCase(logs):
 
     return conflict_dict
 
-def detect_standard_race_conditions(log_file="static_logs.txt"):
+def compare_conflict_orders(detecting_conflict_dict, nocv_conflict_dict):
     """
-    读取 `static_logs.txt` 并检测标准 Race Condition。
+    比较 `nocv_conflict_dict` 和 `detecting_conflict_dict`，
+    找出顺序不一致的 `conflict_pair` 并记录到 `conflict_result`。
     """
-    logs = []
-    with open(log_file, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                log_entry = ast.literal_eval(line)
-                logs.append(log_entry)
+    conflict_result = {  # 记录顺序不一致的冲突
+        "AC": [],
+        "UC": [],
+        "CBK": [],
+        "CP": []
+    }
 
-    results = defineRaceConditionCase(logs)
+    mismatch_count = 0  # 统计顺序不一致的冲突数量
 
-    return results  # 返回标准检测结果
+    for conflict_type in detecting_conflict_dict:
+        expected_pairs = set(detecting_conflict_dict[conflict_type])
+        nocv_pairs = set(nocv_conflict_dict[conflict_type])
 
-# 允许直接运行此文件以查看结果
+        for pair in nocv_pairs:
+            reversed_pair = (pair[1], pair[0])
+            if reversed_pair in expected_pairs:  # 顺序发生颠倒
+                conflict_result[conflict_type].append(pair)
+                mismatch_count += 1
+
+    return conflict_result, mismatch_count
+
+def main():
+    # 读取 `nocv_logs.txt`
+    nocv_logs = read_nocv_logs("nocv_logs.txt")
+
+    # 从 `nocv_logs.txt` 检测 Race Condition
+    nocv_conflict_dict = detectRaceCondition(nocv_logs)
+
+    # 假设 `detecting_conflict_dict` 是用户预期的正确顺序 (来自 Detecting)
+    detecting_conflict_dict = detect_standard_race_conditions()
+
+    # 比较两者的 `conflict_pair` 顺序是否一致
+    conflict_result, mismatch_count = compare_conflict_orders(detecting_conflict_dict, nocv_conflict_dict)
+
+    # 输出最终结果
+    print("=== Final Conflict Comparison Results ===")
+    print(f"Total Mismatched Conflicts: {mismatch_count}")
+    print("Detailed Mismatched Conflicts:")
+    for conflict_type, mismatches in conflict_result.items():
+        print(f"{conflict_type}: {mismatches}")
+
+    return conflict_result, mismatch_count
+
 if __name__ == "__main__":
-    results = detect_standard_race_conditions()
-
-    print("=== Final Detection Results ===")
-    print(f"Action Conflict (AC): {len(results['AC'])} conflicts")
-    print(f"Unexpected Conflict (UC): {len(results['UC'])} conflicts")
-    print(f"Condition Block (CBK): {len(results['CBK'])} conflicts")
-    print(f"Condition Pass (CP): {len(results['CP'])} conflicts")
-
-    print("\nConflict Pairs:")
-    for conflict_type, pairs in results.items():
-        print(f"{conflict_type}: {pairs}")
+    main()

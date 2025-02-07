@@ -75,7 +75,7 @@ def runRules(office, Triggers, rules, id):
     time = int(office["time"])
     Actions = []
     actionId = {}
-    logfile = open("execution_logs.txt", "a", encoding="utf-8")
+    logfile = open("static_logs.txt", "a", encoding="utf-8")
     rulesCountPerEpoch = []
 
 
@@ -204,7 +204,7 @@ if __name__ == '__main__':
     rules = RuleSet.get_all_rules()
 
     # 初始化日志文件（清空）
-    with open("execution_logs.txt", "w", encoding="utf-8"):
+    with open("static_logs.txt", "w", encoding="utf-8"):
         pass
 
     # 从 1 开始给规则分配ID
@@ -215,7 +215,7 @@ if __name__ == '__main__':
         triggers = updateOfficeStatus(office)
 
         print('触发规则')
-        # 每轮会将新日志追加到 execution_logs.txt
+        # 每轮会将新日志追加到 static_logs.txt
         logs, rule_id = runRules(office, triggers, rules, rule_id)
 
-    print("== Simulation Done. Logs written to execution_logs.txt. ==")
+    print("== Simulation Done. Logs written to static_logs.txt. ==")
