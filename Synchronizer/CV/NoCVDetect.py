@@ -1,5 +1,8 @@
 import ast
-from Synchronizer.CV.Detecting import detect_standard_race_conditions
+
+from conda_build.api import check
+
+from Synchronizer.CV.UserTemplate import getUserTemplate
 
 
 def read_nocv_logs(filename):
@@ -13,15 +16,13 @@ def read_nocv_logs(filename):
             logs.append(log_entry)
     return logs
 
+
 def detectRaceCondition(logs):
-    """
-    复用 `detectRaceCondition` 逻辑，检测 `nocv_logs.txt` 里面的 AC、UC、CP、CBK。
-    """
     conflict_dict = {
         "AC": [],  # Action Conflict
         "UC": [],  # Unexpected Conflict
         "CBK": [],  # Condition Block
-        "CP": []    # Condition Pass
+        "CP": []  # Condition Pass
     }
 
     logged_pairs = set()  # 记录已检测的 conflict pair
@@ -87,12 +88,9 @@ def detectRaceCondition(logs):
 
     return conflict_dict
 
-def compare_conflict_orders(detecting_conflict_dict, nocv_conflict_dict):
-    """
-    比较 `nocv_conflict_dict` 和 `detecting_conflict_dict`，
-    找出顺序不一致的 `conflict_pair` 并记录到 `conflict_result`。
-    """
-    conflict_result = {  # 记录顺序不一致的冲突
+
+def check_rcs(user_template_dict, conflict_dict):
+    check_result = {  # 记录顺序不一致的冲突
         "AC": [],
         "UC": [],
         "CBK": [],
@@ -101,39 +99,40 @@ def compare_conflict_orders(detecting_conflict_dict, nocv_conflict_dict):
 
     mismatch_count = 0  # 统计顺序不一致的冲突数量
 
-    for conflict_type in detecting_conflict_dict:
-        expected_pairs = set(detecting_conflict_dict[conflict_type])
-        nocv_pairs = set(nocv_conflict_dict[conflict_type])
+    for conflict_type in user_template_dict:
+        expected_pairs = set(user_template_dict[conflict_type])
+        nocv_pairs = set(conflict_dict[conflict_type])
 
         for pair in nocv_pairs:
             reversed_pair = (pair[1], pair[0])
             if reversed_pair in expected_pairs:  # 顺序发生颠倒
-                conflict_result[conflict_type].append(pair)
+                check_result[conflict_type].append(pair)
                 mismatch_count += 1
 
-    return conflict_result, mismatch_count
+    return check_result, mismatch_count
+
 
 def main():
     # 读取 `nocv_logs.txt`
     nocv_logs = read_nocv_logs("nocv_logs.txt")
 
     # 从 `nocv_logs.txt` 检测 Race Condition
-    nocv_conflict_dict = detectRaceCondition(nocv_logs)
+    conflict_dict = detectRaceCondition(nocv_logs)
 
-    # 假设 `detecting_conflict_dict` 是用户预期的正确顺序 (来自 Detecting)
-    detecting_conflict_dict = detect_standard_race_conditions()
+    user_template = getUserTemplate()
 
-    # 比较两者的 `conflict_pair` 顺序是否一致
-    conflict_result, mismatch_count = compare_conflict_orders(detecting_conflict_dict, nocv_conflict_dict)
+    # 比较两者的顺序是否一致
+    conflict_result, mismatch_count = check_rcs(user_template, conflict_dict)
 
     # 输出最终结果
-    print("=== Final Conflict Comparison Results ===")
+    print("=== Final Check Conflict Results ===")
     print(f"Total Mismatched Conflicts: {mismatch_count}")
     print("Detailed Mismatched Conflicts:")
     for conflict_type, mismatches in conflict_result.items():
         print(f"{conflict_type}: {mismatches}")
 
     return conflict_result, mismatch_count
+
 
 if __name__ == "__main__":
     main()

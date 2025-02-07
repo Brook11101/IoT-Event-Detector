@@ -24,7 +24,7 @@ def execute_rule(log, output_list, lock):
     """
     执行单条规则，模拟 sleep(1-2s) 并记录执行顺序。
     """
-    time.sleep(random.uniform(1, 10))  # 模拟不同执行时间
+    time.sleep(random.uniform(1, 2))  # 模拟不同执行时间
 
     with lock:
         output_list.append(log)  # 线程安全地添加到列表

@@ -1,6 +1,5 @@
 import copy
 import numpy as np
-
 from Synchronizer.CV import RuleSet
 
 # 用于多次循环场景的次数
@@ -70,7 +69,7 @@ def runRules(office, Triggers, rules, id):
     # 找到所有当前可能执行的规则，随机挑选执行，判断condition是否满足，如果不满足就是skipped，如果满足就修改office状态，把action加入到新的Triggers并给出triggerId。
 
     triggerId = {}
-    eporch = 0
+    epoch = 0
     logs = []
     time = int(office["time"])
     Actions = []
@@ -82,10 +81,10 @@ def runRules(office, Triggers, rules, id):
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
-    while len(Triggers) != 0 and eporch < 10:
+    while len(Triggers) != 0 and epoch < 5:
         potentialRules = findPotentialRules(Triggers, rules)
         # 随机打乱，不放回抽样
-        potentialRules = np.random.choice(potentialRules, len(potentialRules), False)
+        # potentialRules = np.random.choice(potentialRules, len(potentialRules), False)
         round_rule_count = len(potentialRules)
         rulesCountPerEpoch.append(round_rule_count)
 
@@ -131,7 +130,7 @@ def runRules(office, Triggers, rules, id):
         triggerId = actionId
         Actions = []
         actionId = {}
-        eporch += 1
+        epoch += 1
 
     for log in logs:
         if log["ancestor"] == "":

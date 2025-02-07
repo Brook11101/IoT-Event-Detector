@@ -1,6 +1,6 @@
 import ast
 
-def defineRaceConditionCase(logs):
+def detectRaceCondition(logs):
     """
     仅统计/记录 4 类冲突：
       - Action Conflict (AC)
@@ -12,7 +12,7 @@ def defineRaceConditionCase(logs):
     已记录过，就不再重复输出或计数。
     """
 
-    conflict_dict = {
+    rc_dict = {
         "AC": [],  # Action Conflict
         "UC": [],  # Unexpected Conflict
         "CBK": [],  # Condition Block
@@ -40,7 +40,7 @@ def defineRaceConditionCase(logs):
 
                         if pair_cbk not in logged_pairs:
                             logged_pairs.add(pair_cbk)
-                            conflict_dict["CBK"].append(pair_cbk)
+                            rc_dict["CBK"].append(pair_cbk)
                         break
                 else:
                     continue
@@ -61,12 +61,12 @@ def defineRaceConditionCase(logs):
                                 pair_ac = (frm_rule_id, cur_rule_id)
                                 if pair_ac not in logged_pairs:
                                     logged_pairs.add(pair_ac)
-                                    conflict_dict["AC"].append(pair_ac)
+                                    rc_dict["AC"].append(pair_ac)
                             else:
                                 pair_uc = (frm_rule_id, cur_rule_id)
                                 if pair_uc not in logged_pairs:
                                     logged_pairs.add(pair_uc)
-                                    conflict_dict["UC"].append(pair_uc)
+                                    rc_dict["UC"].append(pair_uc)
 
             # Condition Pass (CP)
             if current_rule.get('Condition'):
@@ -78,14 +78,14 @@ def defineRaceConditionCase(logs):
                         pair_cp = (frm_rule_id, cur_rule_id)
                         if pair_cp not in logged_pairs:
                             logged_pairs.add(pair_cp)
-                            conflict_dict["CP"].append(pair_cp)
+                            rc_dict["CP"].append(pair_cp)
                         break
 
-    return conflict_dict
+    return rc_dict
 
-def detect_standard_race_conditions(log_file="static_logs.txt"):
+def getUserTemplate(log_file="static_logs.txt"):
     """
-    读取 `static_logs.txt` 并检测标准 Race Condition。
+    读取 `static_logs.txt` 并检测 Race Condition。
     """
     logs = []
     with open(log_file, "r", encoding="utf-8") as f:
@@ -95,13 +95,13 @@ def detect_standard_race_conditions(log_file="static_logs.txt"):
                 log_entry = ast.literal_eval(line)
                 logs.append(log_entry)
 
-    results = defineRaceConditionCase(logs)
+    results = detectRaceCondition(logs)
 
     return results  # 返回标准检测结果
 
 # 允许直接运行此文件以查看结果
 if __name__ == "__main__":
-    results = detect_standard_race_conditions()
+    results = getUserTemplate()
 
     print("=== Final Detection Results ===")
     print(f"Action Conflict (AC): {len(results['AC'])} conflicts")
