@@ -83,7 +83,7 @@ def detectRaceCondition(logs):
 
     return rc_dict
 
-def getUserTemplate(log_file="static_logs.txt"):
+def getUserTemplate(log_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt"):
     """
     读取 `static_logs.txt` 并检测 Race Condition。
     """

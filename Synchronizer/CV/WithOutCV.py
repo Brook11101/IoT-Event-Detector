@@ -1,30 +1,77 @@
+import threading
+import time
+import random
 import ast
+from Synchronizer.CV.UserTemplate import getUserTemplate  # 用户定义的模板，用于比对预期顺序
 
-from conda_build.api import check
+### === 第一部分：读取和生成 `nocv_logs.txt` === ###
+def read_static_logs(filename):
+    """
+    读取 `static_logs.txt`，按轮次 (epoch) 存储规则日志。
+    """
+    with open(filename, "r", encoding="utf-8") as f:
+        data = f.read().strip()
 
-from Synchronizer.CV.UserTemplate import getUserTemplate
+    # 按空行分割不同轮次
+    epochs = data.split("\n\n")
+    logs_per_epoch = [[ast.literal_eval(line) for line in epoch.split("\n") if line.strip()] for epoch in epochs]
 
+    return logs_per_epoch
 
+def execute_rule(log, output_list, lock):
+    """
+    执行单条规则，模拟 sleep(1-2s) 并记录执行顺序。
+    """
+    time.sleep(random.uniform(1, 2))  # 随机执行时间
+
+    with lock:
+        output_list.append(log)  # 线程安全地添加到列表
+
+def process_epoch(epoch_logs, output_logs):
+    """
+    并发执行单个轮次的所有规则，按实际完成顺序记录。
+    """
+    threads = []
+    lock = threading.Lock()
+
+    for log in epoch_logs:
+        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock))
+        threads.append(thread)
+        thread.start()
+
+    for thread in threads:
+        thread.join()  # 确保当前轮次所有规则执行完，再执行下一个轮次
+
+def generate_nocv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt", output_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\nocv_logs.txt"):
+    """
+    读取 `static_logs.txt`，模拟无条件变量情况下的随机执行，并存入 `nocv_logs.txt`。
+    """
+    epochs_logs = read_static_logs(input_file)
+    final_logs = []
+
+    for epoch_logs in epochs_logs:
+        process_epoch(epoch_logs, final_logs)
+
+    # 记录最终执行顺序
+    with open(output_file, "w", encoding="utf-8") as f:
+        for log in final_logs:
+            f.write(str(log) + "\n")
+
+    print(f"Simulation completed. Results saved to {output_file}")
+
+### === 第二部分：检测 Race Condition === ###
 def read_nocv_logs(filename):
     """
     读取 `nocv_logs.txt` 并解析成规则列表，保留执行顺序。
     """
-    logs = []
     with open(filename, "r", encoding="utf-8") as f:
-        for line in f:
-            log_entry = ast.literal_eval(line.strip())  # 解析 JSON 格式的日志
-            logs.append(log_entry)
-    return logs
-
+        return [ast.literal_eval(line.strip()) for line in f]
 
 def detectRaceCondition(logs):
-    conflict_dict = {
-        "AC": [],  # Action Conflict
-        "UC": [],  # Unexpected Conflict
-        "CBK": [],  # Condition Block
-        "CP": []  # Condition Pass
-    }
-
+    """
+    复用 `detectRaceCondition` 逻辑，检测 `nocv_logs.txt` 里面的 AC、UC、CP、CBK。
+    """
+    conflict_dict = {"AC": [], "UC": [], "CBK": [], "CP": []}
     logged_pairs = set()  # 记录已检测的 conflict pair
 
     for i in range(len(logs)):
@@ -38,9 +85,7 @@ def detectRaceCondition(logs):
             for j in range(i - 1, -1, -1):
                 former_rule = logs[j]
                 frm_rule_id = former_rule["id"]
-                former_actions = former_rule["Action"]
-
-                for former_act in former_actions:
+                for former_act in former_rule["Action"]:
                     if former_act[0] == cond_dev:
                         pair_cbk = (frm_rule_id, cur_rule_id)
                         if pair_cbk not in logged_pairs:
@@ -57,21 +102,19 @@ def detectRaceCondition(logs):
             for j in range(i - 1, -1, -1):
                 former_rule = logs[j]
                 frm_rule_id = former_rule["id"]
-                former_actions = former_rule["Action"]
 
                 for latter_act in current_actions:
-                    for former_act in former_actions:
+                    for former_act in former_rule["Action"]:
                         if latter_act[0] == former_act[0] and latter_act[1] != former_act[1]:
+                            pair = (frm_rule_id, cur_rule_id)
                             if former_rule["ancestor"] == current_rule["ancestor"]:
-                                pair_ac = (frm_rule_id, cur_rule_id)
-                                if pair_ac not in logged_pairs:
-                                    logged_pairs.add(pair_ac)
-                                    conflict_dict["AC"].append(pair_ac)
+                                if pair not in logged_pairs:
+                                    logged_pairs.add(pair)
+                                    conflict_dict["AC"].append(pair)
                             else:
-                                pair_uc = (frm_rule_id, cur_rule_id)
-                                if pair_uc not in logged_pairs:
-                                    logged_pairs.add(pair_uc)
-                                    conflict_dict["UC"].append(pair_uc)
+                                if pair not in logged_pairs:
+                                    logged_pairs.add(pair)
+                                    conflict_dict["UC"].append(pair)
 
             # Condition Pass (CP)
             if current_rule.get('Condition'):
@@ -88,15 +131,9 @@ def detectRaceCondition(logs):
 
     return conflict_dict
 
-
+### === 第三部分：比对用户预期顺序 === ###
 def check_rcs(user_template_dict, conflict_dict):
-    check_result = {  # 记录顺序不一致的冲突
-        "AC": [],
-        "UC": [],
-        "CBK": [],
-        "CP": []
-    }
-
+    check_result = {"AC": [], "UC": [], "CBK": [], "CP": []}
     mismatch_count = 0  # 统计顺序不一致的冲突数量
 
     for conflict_type in user_template_dict:
@@ -111,17 +148,20 @@ def check_rcs(user_template_dict, conflict_dict):
 
     return check_result, mismatch_count
 
-
 def main():
+    # 生成 `nocv_logs.txt`
+    generate_nocv_logs()
+
     # 读取 `nocv_logs.txt`
-    nocv_logs = read_nocv_logs("nocv_logs.txt")
+    nocv_logs = read_nocv_logs(r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\nocv_logs.txt")
 
     # 从 `nocv_logs.txt` 检测 Race Condition
     conflict_dict = detectRaceCondition(nocv_logs)
 
+    # 获取用户定义的标准顺序
     user_template = getUserTemplate()
 
-    # 比较两者的顺序是否一致
+    # 比较 `nocv_conflict_dict` 和 `user_template`
     conflict_result, mismatch_count = check_rcs(user_template, conflict_dict)
 
     # 输出最终结果
@@ -132,7 +172,6 @@ def main():
         print(f"{conflict_type}: {mismatches}")
 
     return conflict_result, mismatch_count
-
 
 if __name__ == "__main__":
     main()
