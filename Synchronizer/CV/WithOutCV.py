@@ -3,6 +3,34 @@ import time
 import random
 import ast
 from Synchronizer.CV.UserTemplate import getUserTemplate  # 用户定义的模板，用于比对预期顺序
+from RuleSet import deviceStatus
+
+deviceStatus = deviceStatus
+
+class DeviceLock:
+    """
+    设备锁管理类：管理单个设备的锁，支持持续尝试获取锁。
+    """
+    def __init__(self):
+        self.lock = threading.Lock()  # 每个设备对应一个锁
+
+    def acquire(self):
+        """
+        持续尝试获取锁，直到成功为止。
+        """
+        while True:
+            if self.lock.acquire(blocking=False):  # 尝试获取锁
+                return  # 成功获取锁，返回
+            # 失败则继续循环，直到获取成功
+
+    def release(self):
+        """
+        释放设备锁
+        """
+        self.lock.release()
+
+# === 创建全局设备锁字典 ===
+device_locks = {device: DeviceLock() for device in deviceStatus}  # 设备锁池
 
 ### === 第一部分：读取和生成 `nocv_logs.txt` === ###
 def read_static_logs(filename):
@@ -18,14 +46,31 @@ def read_static_logs(filename):
 
     return logs_per_epoch
 
-def execute_rule(log, output_list, lock):
+def execute_rule(rule, output_list, lock):
     """
-    执行单条规则，模拟 sleep(1-2s) 并记录执行顺序。
+    执行单条规则：
+    1. **按照 `Lock` 标签中的设备获取设备锁**。
+    2. **按字典序排序，依次申请所有锁，确保获取顺序固定，避免死锁**。
+    3. **成功获取所有锁后，执行任务（sleep 1-2s）**。
+    4. **任务完成后，释放所有锁**。
     """
-    time.sleep(random.uniform(1, 2))  # 随机执行时间
 
-    with lock:
-        output_list.append(log)  # 线程安全地添加到列表
+    # 需要获取的设备锁（来自 `Lock` 标签），按字典序排序
+    devices_to_lock = sorted(rule["Lock"])
+
+    # **按字典序申请所有设备锁**
+    for device in devices_to_lock:
+        device_locks[device].acquire()
+
+    try:
+        print(f"规则 {rule['id']} 已获取所有锁，开始执行...")
+        time.sleep(random.uniform(1, 2))  # **模拟任务执行**
+        output_list.append(rule)  # **线程安全地记录执行顺序**
+    finally:
+        # **按字典序释放所有设备锁**
+        for device in devices_to_lock:
+            device_locks[device].release()
+        print(f"规则 {rule['id']} 执行完成，已释放锁：{devices_to_lock}")
 
 def process_epoch(epoch_logs, output_logs):
     """

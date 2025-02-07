@@ -97,7 +97,29 @@ def getUserTemplate(log_file=r"E:\研究生信息收集\论文材料\IoT-Event-D
 
     results = detectRaceCondition(logs)
 
-    return results  # 返回标准检测结果
+    # 调用 reorder_by_score 进行基于 `score` 的重排序
+    score_results = reorder_by_score(logs, results)
+
+    return score_results  # 返回基于 `score` 重新排序的 Race Condition 结果
+
+def reorder_by_score(logs, rc_dict):
+    """
+    重新排序 Race Condition 结果，使得 `score` 更大的规则在左边。
+    """
+    # 构建规则 ID 到 score 的映射表
+    score_map = {rule["id"]: rule["score"] for rule in logs}
+
+    score_result = {key: [] for key in rc_dict}
+
+    for conflict_type, pairs in rc_dict.items():
+        for id1, id2 in pairs:
+            # 按照 `score` 排序，高分数的规则 ID 在左
+            if score_map[id1] >= score_map[id2]:
+                score_result[conflict_type].append((id1, id2))
+            else:
+                score_result[conflict_type].append((id2, id1))
+
+    return score_result
 
 # 允许直接运行此文件以查看结果
 if __name__ == "__main__":
