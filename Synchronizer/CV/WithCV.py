@@ -4,6 +4,11 @@ import random
 import ast
 from Synchronizer.CV.UserTemplate import getUserTemplate  # 用户定义的模板，用于比对预期顺序
 from RuleSet import deviceStatus
+from Message import send_message
+from Message import create_streams
+from Message import clear_all_streams
+from Message import consume_messages_from_offset
+
 
 def build_dependency_map(sorted_rc_dict_with_device):
     """
@@ -39,8 +44,6 @@ def build_dependency_map(sorted_rc_dict_with_device):
             dependency_map[current_id][device].add(wait_id)
 
     return dependency_map
-
-
 
 class DeviceLock:
     """
@@ -82,41 +85,80 @@ def read_static_logs(filename):
 
     return logs_per_epoch
 
-def execute_rule(rule, output_list, lock):
+
+def execute_rule(rule, output_list, lock, dependency_map):
     """
     执行单条规则：
-    1. **按照 `Lock` 标签中的设备获取设备锁**。
-    2. **按字典序排序，依次申请所有锁，确保获取顺序固定，避免死锁**。
-    3. **成功获取所有锁后，执行任务（sleep 1-2s）**。
-    4. **任务完成后，释放所有锁**。
+    1. **获取设备锁，并发送 `start` 消息**。
+    2. **释放锁，监听 `end` 消息，等待所有依赖的规则完成**。
+    3. **依赖满足后，重新获取设备锁，执行任务**。
+    4. **执行完成后，发送 `end` 消息，并释放设备锁**。
     """
 
-    # 需要获取的设备锁（来自 `Lock` 标签），按字典序排序
-    devices_to_lock = sorted(rule["Lock"])
+    rule_id = rule["id"]
+    rule_name = f"rule-{rule_id}"
 
-    # **按字典序申请所有设备锁**
+    # 1️⃣ **获取设备锁**
+    devices_to_lock = sorted(rule["Lock"])  # **按照字典序获取所有锁**
     for device in devices_to_lock:
         device_locks[device].acquire()
 
-    # 向对应的消息队列中发送start类型和id的消息
+    # 2️⃣ **发送 `start` 消息**
+    for device in devices_to_lock:
+        stream_name = f"Stream_{device}"
+        send_message(rule_name, stream_name, "start", rule_id)
 
-    # 发完消息后释放锁，开始监听消息
+    # 3️⃣ **释放设备锁**
     for device in devices_to_lock:
         device_locks[device].release()
 
-    # 收集到所有的消息后，重新申请锁，开始执行
+    # 4️⃣ **监听依赖的 `end` 消息**
+    waiting_threads = []
+    results = []  # 存储所有线程的返回值
+
+    if rule_id in dependency_map:
+        for device, wait_rules in dependency_map[rule_id].items():
+            if wait_rules:  # 仅在有依赖规则时监听
+                stream_name = f"Stream_{device}"
+
+                def worker():
+                    result = consume_messages_from_offset(rule_name, rule_id, stream_name, wait_rules, '0-0')
+                    results.append(result)  # 存储线程返回值
+
+                thread = threading.Thread(target=worker)
+                waiting_threads.append(thread)
+                thread.start()
+
+        # **等待所有监听线程完成**
+        for thread in waiting_threads:
+            thread.join()
+
+        # **检查所有监听结果**
+        if all(results):
+            print(f"规则 {rule_id} 依赖等待成功")
+        else:
+            print(f"规则 {rule_id} 依赖等待失败")
+
+    # 5️⃣ **重新获取设备锁**
+    for device in devices_to_lock:
+        device_locks[device].acquire()
 
     try:
-        print(f"规则 {rule['id']} 已获取所有锁，开始执行...")
+        # 6️⃣ **执行任务**
+        print(f"规则 {rule_id} 已获取所有锁，开始执行...")
         time.sleep(random.uniform(1, 2))  # **模拟任务执行**
-        output_list.append(rule)  # **线程安全地记录执行顺序**
+        output_list.append(rule)  # **记录执行顺序**
 
-    #     此时发送一条end类型的消息
+        # 7️⃣ **发送 `end` 消息**
+        for device in devices_to_lock:
+            stream_name = f"Stream_{device}"
+            send_message(rule_name, stream_name, "end", rule_id)
+
     finally:
-        # **按字典序释放所有设备锁**
+        # 8️⃣ **释放设备锁**
         for device in devices_to_lock:
             device_locks[device].release()
-        print(f"规则 {rule['id']} 执行完成，已释放锁：{devices_to_lock}")
+        print(f"规则 {rule_id} 执行完成，已释放锁：{devices_to_lock}")
 
 
 def process_epoch(epoch_logs, output_logs):
@@ -126,8 +168,11 @@ def process_epoch(epoch_logs, output_logs):
     threads = []
     lock = threading.Lock()
 
+    s1, s2 = getUserTemplate()
+    dependency_map = build_dependency_map(s2)
+
     for log in epoch_logs:
-        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock))
+        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock, dependency_map))
         threads.append(thread)
         thread.start()
 
@@ -241,6 +286,11 @@ def check_rcs(user_template_dict, conflict_dict):
     return check_result, mismatch_count
 
 def main():
+
+    clear_all_streams()
+
+    create_streams()
+
     # 生成 `cv_logs.txt`
     generate_cv_logs()
 
@@ -251,7 +301,7 @@ def main():
     conflict_dict = detectRaceCondition(cv_logs)
 
     # 获取用户定义的标准顺序
-    user_template = getUserTemplate()
+    user_template,user_template_dict = getUserTemplate()
 
     # 比较 `cv_conflict_dict` 和 `user_template`
     conflict_result, mismatch_count = check_rcs(user_template, conflict_dict)
@@ -266,5 +316,4 @@ def main():
     return conflict_result, mismatch_count
 
 if __name__ == "__main__":
-    s1,s2 = getUserTemplate()
-    print(build_dependency_map(s2))
+    main()
