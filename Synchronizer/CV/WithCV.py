@@ -5,17 +5,16 @@ import ast
 from Synchronizer.CV.UserTemplate import getUserTemplate  # 用户定义的模板，用于比对预期顺序
 from RuleSet import deviceStatus
 
-def build_dependency_map(rc_dict):
+def build_dependency_map(sorted_rc_dict_with_device):
     """
-    根据 UserTemplate 的 Race Condition 结果，构建规则 ID 之间的依赖关系。
+    根据 `sorted_rc_dict_with_device` 构建规则 ID 之间的依赖关系，按照设备 (deviceName) 组织。
 
     依赖字典结构:
     {
         rule_id: {
-            "AC": {依赖的规则ID集合},
-            "UC": {依赖的规则ID集合},
-            "CP": {依赖的规则ID集合},
-            "CBK": {依赖的规则ID集合}
+            deviceName1: {依赖的规则ID集合},
+            deviceName2: {依赖的规则ID集合},
+            ...
         },
         ...
     }
@@ -25,15 +24,22 @@ def build_dependency_map(rc_dict):
 
     dependency_map = {}
 
-    # **遍历所有 Race Condition 类型**
-    for conflict_type, pairs in rc_dict.items():
-        for wait_id, current_id in pairs:  # **wait_id 需要先执行，current_id 需要等待**
+    # **遍历所有 Race Condition 记录**
+    for conflict_type, pairs_with_device in sorted_rc_dict_with_device.items():
+        for (wait_id, current_id), device in pairs_with_device:
+            # **初始化 `current_id` 在 dependency_map 里的结构**
             if current_id not in dependency_map:
-                dependency_map[current_id] = {"AC": set(), "UC": set(), "CP": set(), "CBK": set()}
+                dependency_map[current_id] = {}
 
-            dependency_map[current_id][conflict_type].add(wait_id)  # **记录依赖**
+            # **初始化 `device` 在 `current_id` 里的集合**
+            if device not in dependency_map[current_id]:
+                dependency_map[current_id][device] = set()
+
+            # **记录 `current_id` 需要等待的规则 `wait_id`**
+            dependency_map[current_id][device].add(wait_id)
 
     return dependency_map
+
 
 
 class DeviceLock:
@@ -92,15 +98,26 @@ def execute_rule(rule, output_list, lock):
     for device in devices_to_lock:
         device_locks[device].acquire()
 
+    # 向对应的消息队列中发送start类型和id的消息
+
+    # 发完消息后释放锁，开始监听消息
+    for device in devices_to_lock:
+        device_locks[device].release()
+
+    # 收集到所有的消息后，重新申请锁，开始执行
+
     try:
         print(f"规则 {rule['id']} 已获取所有锁，开始执行...")
         time.sleep(random.uniform(1, 2))  # **模拟任务执行**
         output_list.append(rule)  # **线程安全地记录执行顺序**
+
+    #     此时发送一条end类型的消息
     finally:
         # **按字典序释放所有设备锁**
         for device in devices_to_lock:
             device_locks[device].release()
         print(f"规则 {rule['id']} 执行完成，已释放锁：{devices_to_lock}")
+
 
 def process_epoch(epoch_logs, output_logs):
     """
@@ -249,4 +266,5 @@ def main():
     return conflict_result, mismatch_count
 
 if __name__ == "__main__":
-    main()
+    s1,s2 = getUserTemplate()
+    print(build_dependency_map(s2))

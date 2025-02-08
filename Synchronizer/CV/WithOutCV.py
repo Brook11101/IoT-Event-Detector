@@ -204,7 +204,7 @@ def main():
     conflict_dict = detectRaceCondition(nocv_logs)
 
     # 获取用户定义的标准顺序
-    user_template = getUserTemplate()
+    user_template,user_template_device = getUserTemplate()
 
     # 比较 `nocv_conflict_dict` 和 `user_template`
     conflict_result, mismatch_count = check_rcs(user_template, conflict_dict)

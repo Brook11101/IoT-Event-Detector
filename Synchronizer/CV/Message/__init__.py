@@ -77,35 +77,22 @@ def send_message(rule_name, stream, key, id):
         print(f"[{rule_name}] 发送消息失败: {e}")
 
 
-def consume_messages_from_offset(rule_name, current_rule_id, stream, offset='0-0'):
+def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_set, offset='0-0'):
     """
-    通过消费者组方式消费指定 Redis Stream 的消息，每个规则线程启动独立的消费者组，
-    从最开始位置读取消息，实现 FIFO 顺序且各自互不干扰。
+    通过 Redis Stream 监听规则的 `start` 和 `end` 消息，仅等待 `target_id_set` 里的规则。
 
-    消息格式要求：每条消息包含两个字段：
-      - key：消息类型，取值 "start" 或 "end"
-      - id：规则的 id（存储为字符串，消费时转换为整数）
-
-    处理逻辑：
-      1. 使用消费者组读取消息。
-      2. 维护一个 active_rules 集合，用于记录其他规则的 id。
-      3. 如果读取到 start 类型的消息：
-         - 当消息 id 不等于当前规则线程的 id，并且当前尚未收到自己的 start 消息时，
-           将该 id 加入 active_rules。
-         - 当读取到消息 id 等于当前规则线程的 id时：
-             * 标记 own_start_received 为 True，
-             * 如果 active_rules 集合为空，则退出消费并返回 True；
-             * 如果 active_rules 集合不为空，则继续等待后续消息，
-               并且此后所有 start 类型的消息均不再处理（不加入 active_rules）。
-      4. 如果读取到 end 类型的消息，则从 active_rules 中移除对应的 id。
-      5. 每次处理完 end 消息后，若已收到自己的 start 消息且 active_rules 为空，则退出消费并返回 True。
-
-    :param rule_name: 当前规则线程名称（同时作为消费者组和消费者名称的一部分）
-    :param current_rule_id: 当前规则线程的 id（整数）
-    :param stream: 要消费的 Redis Stream 名称
+    :param rule_name: 当前规则线程名称
+    :param current_rule_id: 当前规则 ID（整数）
+    :param stream: 监听的 Redis Stream 名称
+    :param target_id_set: 需要等待的规则 ID 集合（只监听这些规则的 start/end 消息）
     :param offset: 消费起始消息 ID，默认 '0-0' 表示从头开始
     :return: 当退出消费时返回 True；出现异常则返回 False
     """
+    # 如果没有需要等待的规则，直接返回 True
+    if not target_id_set:
+        print(f"[{rule_name}] 无需等待任何规则，立即执行")
+        return True
+
     group_name = f"CG_{rule_name}"
     consumer_name = rule_name  # 每个消费者组只有一个消费者
 
@@ -120,8 +107,8 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, offset='0-0
             print(f"[{rule_name}] 创建消费者组 {group_name} 失败: {e}")
             return False
 
-    active_rules = set()       # 用于记录其他规则的 id
-    own_start_received = False # 标记是否已收到当前规则线程自己的 start 消息
+    active_rules = set()  # 用于记录 `target_id_set` 里的规则
+    own_start_received = False  # 标记是否已收到当前规则自己的 `start` 消息
 
     print(f"[{rule_name}] 开始消费 stream '{stream}' 的消息，消费者组: {group_name}, 消费者: {consumer_name}")
 
@@ -146,41 +133,36 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, offset='0-0
                         continue
 
                     if msg_type == 'start':
-                        # 如果是当前规则自己的 start 消息
+                        # **当前规则自己的 start 消息**
                         if msg_rule_id == current_rule_id:
                             own_start_received = True
                             print(f"[{rule_name}] 收到自己的 start 消息 (rule-id: {msg_rule_id})")
                             redis_client.xack(stream, group_name, msg_id)
-                            # 判断 active_rules 是否为空，若空则退出消费
+
+                            # **如果没有正在等待的规则，直接返回**
                             if not active_rules:
                                 print(f"[{rule_name}] active_rules 为空，退出消费")
                                 return True
                         else:
-                            # 非当前规则的 start 消息
-                            if not own_start_received:
-                                # 仅在未收到自己 start 消息前，才将其他规则的 start 消息加入集合
+                            # **仅监听 target_id_set 里的规则**
+                            if msg_rule_id in target_id_set and not own_start_received:
                                 active_rules.add(msg_rule_id)
-                                print(f"[{rule_name}] 添加规则 {msg_rule_id} 到 active_rules, 当前集合: {active_rules}")
-                            else:
-                                # 自己的 start 消息已收到后，忽略所有后续的 start 消息
-                                print(f"[{rule_name}] 忽略其他 start 消息 (rule-id: {msg_rule_id})")
+                                print(
+                                    f"[{rule_name}] 监听目标规则 {msg_rule_id} 的 start 消息，当前等待集合: {active_rules}")
                             redis_client.xack(stream, group_name, msg_id)
 
                     elif msg_type == 'end':
-                        # end 消息处理：尝试从 active_rules 中移除对应 rule-id
+                        # **仅移除 target_id_set 里的规则**
                         if msg_rule_id in active_rules:
                             active_rules.remove(msg_rule_id)
-                            print(f"[{rule_name}] 移除规则 {msg_rule_id}，active_rules 当前集合: {active_rules}")
-                        else:
-                            print(f"[{rule_name}] 收到 end 消息，但规则 {msg_rule_id} 不在 active_rules")
+                            print(f"[{rule_name}] 规则 {msg_rule_id} 结束，移出等待集合，当前等待集合: {active_rules}")
                         redis_client.xack(stream, group_name, msg_id)
 
-                        # 每次处理 end 消息后，检查：如果已收到自己 start 消息且 active_rules 为空，则退出消费
+                        # **若已收到自己 start 消息且 active_rules 为空，则退出**
                         if own_start_received and not active_rules:
-                            print(f"[{rule_name}] active_rules 集合为空且已收到自己的 start 消息，退出消费")
+                            print(f"[{rule_name}] active_rules 为空且已收到自己的 start 消息，退出消费")
                             return True
 
         except Exception as e:
             print(f"[{rule_name}] 消费消息异常: {e}")
             return False
-
