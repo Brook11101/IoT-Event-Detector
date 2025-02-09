@@ -98,21 +98,27 @@ def execute_rule(rule, output_list, lock, dependency_map):
     rule_id = rule["id"]
     rule_name = f"rule-{rule_id}"
 
-    # 1️⃣ **获取设备锁**
+    # 1️ **获取设备锁**
     devices_to_lock = sorted(rule["Lock"])  # **按照字典序获取所有锁**
     for device in devices_to_lock:
         device_locks[device].acquire()
 
-    # 2️⃣ **发送 `start` 消息**
+    # 2️ **发送 `start` 消息**
     for device in devices_to_lock:
         stream_name = f"Stream_{device}"
         send_message(rule_name, stream_name, "start", rule_id)
 
-    # 3️⃣ **释放设备锁**
+    #  **如果规则有 Condition，不为空，则给 Condition 设备也发送 start**
+    if rule.get("Condition"):
+        condition_device = rule["Condition"][0]  # 获取 Condition 设备
+        stream_name = f"Stream_{condition_device}"
+        send_message(rule_name, stream_name, "start", rule_id)
+
+    # 3️ **释放设备锁**
     for device in devices_to_lock:
         device_locks[device].release()
 
-    # 4️⃣ **监听依赖的 `end` 消息**
+    # 4️ **监听依赖的 `end` 消息**
     waiting_threads = []
     results = []  # 存储所有线程的返回值
 
@@ -139,23 +145,29 @@ def execute_rule(rule, output_list, lock, dependency_map):
         else:
             print(f"规则 {rule_id} 依赖等待失败")
 
-    # 5️⃣ **重新获取设备锁**
+    # 5️ **重新获取设备锁**
     for device in devices_to_lock:
         device_locks[device].acquire()
 
     try:
-        # 6️⃣ **执行任务**
+        # 6️ **执行任务**
         print(f"规则 {rule_id} 已获取所有锁，开始执行...")
         time.sleep(random.uniform(1, 2))  # **模拟任务执行**
         output_list.append(rule)  # **记录执行顺序**
 
-        # 7️⃣ **发送 `end` 消息**
+        # 7️ **发送 `end` 消息**
         for device in devices_to_lock:
             stream_name = f"Stream_{device}"
             send_message(rule_name, stream_name, "end", rule_id)
 
+        # **如果规则有 Condition，不为空，则给 Condition 设备也发送 end**
+        if rule.get("Condition"):
+            condition_device = rule["Condition"][0]
+            stream_name = f"Stream_{condition_device}"
+            send_message(rule_name, stream_name, "end", rule_id)
+
     finally:
-        # 8️⃣ **释放设备锁**
+        # 8️ **释放设备锁**
         for device in devices_to_lock:
             device_locks[device].release()
         print(f"规则 {rule_id} 执行完成，已释放锁：{devices_to_lock}")

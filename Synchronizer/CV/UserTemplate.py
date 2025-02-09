@@ -160,6 +160,41 @@ def getUserTemplate(log_file=r"E:\研究生信息收集\论文材料\IoT-Event-D
     return sorted_rc_dict, sorted_rc_dict_with_device
 
 
+def build_dependency_map(sorted_rc_dict_with_device):
+    """
+    根据 `sorted_rc_dict_with_device` 构建规则 ID 之间的依赖关系，按照设备 (deviceName) 组织。
+
+    依赖字典结构:
+    {
+        rule_id: {
+            deviceName1: {依赖的规则ID集合},
+            deviceName2: {依赖的规则ID集合},
+            ...
+        },
+        ...
+    }
+
+    仅当规则 ID 需要等待其他规则时，才会记录在字典里。
+    """
+
+    dependency_map = {}
+
+    # **遍历所有 Race Condition 记录**
+    for conflict_type, pairs_with_device in sorted_rc_dict_with_device.items():
+        for (wait_id, current_id), device in pairs_with_device:
+            # **初始化 `current_id` 在 dependency_map 里的结构**
+            if current_id not in dependency_map:
+                dependency_map[current_id] = {}
+
+            # **初始化 `device` 在 `current_id` 里的集合**
+            if device not in dependency_map[current_id]:
+                dependency_map[current_id][device] = set()
+
+            # **记录 `current_id` 需要等待的规则 `wait_id`**
+            dependency_map[current_id][device].add(wait_id)
+
+    return dependency_map
+
 if __name__ == "__main__":
     sorted_results, sorted_results_with_device = getUserTemplate()
 
@@ -173,4 +208,4 @@ if __name__ == "__main__":
     for conflict_type, pairs in sorted_results.items():
         print(f"{conflict_type} ({len(pairs)} conflicts): {pairs}")
 
-    print(sorted_results_with_device)
+    print(build_dependency_map(sorted_results_with_device))
