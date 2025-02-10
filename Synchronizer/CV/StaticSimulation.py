@@ -3,7 +3,7 @@ import numpy as np
 from Synchronizer.CV import RuleSet
 
 # 用于多次循环场景的次数
-times = 3
+times = 1
 
 deviceStatus = {
     "Smoke": ["unsmoke", "smoke"],
@@ -81,7 +81,7 @@ def runRules(office, Triggers, rules, id):
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
-    while len(Triggers) != 0 and epoch < 100:
+    while len(Triggers) != 0 and epoch < 10:
         potentialRules = findPotentialRules(Triggers, rules)
         # 随机打乱，不放回抽样
         # potentialRules = np.random.choice(potentialRules, len(potentialRules), False)

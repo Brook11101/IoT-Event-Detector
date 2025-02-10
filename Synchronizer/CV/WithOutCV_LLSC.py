@@ -4,33 +4,9 @@ import random
 import ast
 from Synchronizer.CV.UserTemplate import getUserTemplate  # 用户定义的模板，用于比对预期顺序
 from RuleSet import deviceStatus
+from Synchronizer.Mutex.LLSC.DBMyISAM import insert_log
 
 deviceStatus = deviceStatus
-
-class DeviceLock:
-    """
-    设备锁管理类：管理单个设备的锁，支持持续尝试获取锁。
-    """
-    def __init__(self):
-        self.lock = threading.Lock()  # 每个设备对应一个锁
-
-    def acquire(self):
-        """
-        持续尝试获取锁，直到成功为止。
-        """
-        while True:
-            if self.lock.acquire(blocking=False):  # 尝试获取锁
-                return  # 成功获取锁，返回
-            # 失败则继续循环，直到获取成功
-
-    def release(self):
-        """
-        释放设备锁
-        """
-        self.lock.release()
-
-# === 创建全局设备锁字典 ===
-device_locks = {device: DeviceLock() for device in deviceStatus}  # 设备锁池
 
 ### === 第一部分：读取和生成 `nocv_logs.txt` === ###
 def read_static_logs(filename):
@@ -49,28 +25,34 @@ def read_static_logs(filename):
 def execute_rule(rule, output_list, lock):
     """
     执行单条规则：
-    1. **按照 `Lock` 标签中的设备获取设备锁**。
+    1. **LLSC**。
     2. **按字典序排序，依次申请所有锁，确保获取顺序固定，避免死锁**。
     3. **成功获取所有锁后，执行任务（sleep 1-2s）**。
     4. **任务完成后，释放所有锁**。
     """
 
-    # 需要获取的设备锁（来自 `Lock` 标签），按字典序排序
-    devices_to_lock = sorted(rule["Lock"])
+    ruleid = rule["id"]
+    trigger_device = rule["Trigger"]
+    condition_device = rule["Condition"]
+    action_device = rule["Action"]
+    description = rule["description"]
+    lock_device = rule["Lock"]
 
-    # **按字典序申请所有设备锁**
-    for device in devices_to_lock:
-        device_locks[device].acquire()
 
     try:
-        print(f"规则 {rule['id']} 已获取所有锁，开始执行...")
+        print(f"规则 {rule['id']} 直接开始执行...")
+        # 当前请求的执行开始时间: 仅用于插入日志（原逻辑）
+        start_timestamp = time
+        # 记录线程开始时间
+        start_time = time
         time.sleep(random.uniform(1, 2))  # **模拟任务执行**
+        # 将数据插入数据库
+        # exec_time = insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device,
+        #                        start_timestamp,
+        #                        start_time)
         output_list.append(rule)  # **线程安全地记录执行顺序**
     finally:
-        # **按字典序释放所有设备锁**
-        for device in devices_to_lock:
-            device_locks[device].release()
-        print(f"规则 {rule['id']} 执行完成，已释放锁：{devices_to_lock}")
+        print(f"规则 {rule['id']} 执行完成")
 
 def process_epoch(epoch_logs, output_logs):
     """
@@ -112,9 +94,11 @@ def read_nocv_logs(filename):
     with open(filename, "r", encoding="utf-8") as f:
         return [ast.literal_eval(line.strip()) for line in f]
 
+
+# 除了考虑检测出来的顺序，还得考虑规则的启动顺序，先启动的规则不可见后启动的规则,故更新为只检测frm_rule_id>cur_rule_id的
 def detectRaceCondition(logs):
     """
-    复用 `detectRaceCondition` 逻辑，检测 `nocv_logs.txt` 里面的 AC、UC、CP、CBK。
+    复用 `detectRaceCondition` 逻辑，检测 `cv_logs.txt` 里面的 AC、UC、CP、CBK。
     """
     conflict_dict = {"AC": [], "UC": [], "CBK": [], "CP": []}
     logged_pairs = set()  # 记录已检测的 conflict pair
@@ -133,7 +117,7 @@ def detectRaceCondition(logs):
                 for former_act in former_rule["Action"]:
                     if former_act[0] == cond_dev:
                         pair_cbk = (frm_rule_id, cur_rule_id)
-                        if pair_cbk not in logged_pairs:
+                        if frm_rule_id>cur_rule_id and pair_cbk not in logged_pairs:
                             logged_pairs.add(pair_cbk)
                             conflict_dict["CBK"].append(pair_cbk)
                         break
@@ -153,11 +137,11 @@ def detectRaceCondition(logs):
                         if latter_act[0] == former_act[0] and latter_act[1] != former_act[1]:
                             pair = (frm_rule_id, cur_rule_id)
                             if former_rule["ancestor"] == current_rule["ancestor"]:
-                                if pair not in logged_pairs:
+                                if frm_rule_id>cur_rule_id and pair not in logged_pairs:
                                     logged_pairs.add(pair)
                                     conflict_dict["AC"].append(pair)
                             else:
-                                if pair not in logged_pairs:
+                                if frm_rule_id>cur_rule_id and pair not in logged_pairs:
                                     logged_pairs.add(pair)
                                     conflict_dict["UC"].append(pair)
 
@@ -169,7 +153,7 @@ def detectRaceCondition(logs):
                     frm_rule_id = former_rule["id"]
                     if [cond_dev, cond_state] in former_rule["Action"]:
                         pair_cp = (frm_rule_id, cur_rule_id)
-                        if pair_cp not in logged_pairs:
+                        if frm_rule_id>cur_rule_id and pair_cp not in logged_pairs:
                             logged_pairs.add(pair_cp)
                             conflict_dict["CP"].append(pair_cp)
                         break
@@ -193,6 +177,32 @@ def check_rcs(user_template_dict, conflict_dict):
 
     return check_result, mismatch_count
 
+def check_racecondition_with_score(conflict_dict, rule_scores):
+    """
+    计算 Race Condition，按照类别 (AC, UC, CBK, CP) 统计：
+    - 遍历 conflict_dict 中的所有 (a, b) 对。
+    - 如果 score(a) < score(b)，表示 b 本应先执行，但 a 先执行了，这是一个 Race Condition。
+    - 统计并返回更新后的 conflict_dict 和 总计不合理的冲突数量 mismatch_count。
+
+    :param conflict_dict: 包含 AC、UC、CBK、CP 类型的 conflict 对象
+    :param rule_scores: 规则 ID -> Score 的映射 {rule_id: score}
+    :return: (更新后的 conflict_dict, mismatch_count)
+    """
+    updated_conflict_dict = {"AC": [], "UC": [], "CBK": [], "CP": []}
+    mismatch_count = 0  # 统计 Race Condition 总数
+
+    for conflict_type, pairs in conflict_dict.items():
+        for (a, b) in pairs:
+            score_a = rule_scores.get(a, float("inf"))  # 获取 a 的 score，默认为无穷大
+            score_b = rule_scores.get(b, float("inf"))  # 获取 b 的 score，默认为无穷大
+
+            if score_a < score_b:  # 发现 a 应该在 b 之后执行，但 a 先执行了
+                updated_conflict_dict[conflict_type].append((a, b))
+                mismatch_count += 1  # 统计不合理的冲突数量
+
+    return updated_conflict_dict, mismatch_count
+
+
 def main():
     # 生成 `nocv_logs.txt`
     generate_nocv_logs()
@@ -203,13 +213,18 @@ def main():
     # 从 `nocv_logs.txt` 检测 Race Condition
     conflict_dict = detectRaceCondition(nocv_logs)
 
-    # 获取用户定义的标准顺序
-    user_template,user_template_device = getUserTemplate()
+    # **获取所有规则的 Score**
+    rule_scores = {rule["id"]: rule["score"] for rule in nocv_logs}  # 提取 score 映射
 
-    # 比较 `nocv_conflict_dict` 和 `user_template`
-    conflict_result, mismatch_count = check_rcs(user_template, conflict_dict)
+    # # 获取用户定义的标准顺序
+    # user_template,user_template_device = getUserTemplate()
+    # # 比较 `nocv_conflict_dict` 和 `user_template`
+    # conflict_result, mismatch_count = check_rcs(user_template, conflict_dict)
 
-    # 输出最终结果
+    # **使用 score 计算 Race Condition，并分类统计**
+    conflict_result, mismatch_count = check_racecondition_with_score(conflict_dict, rule_scores)
+
+    # **分类打印输出**
     print("=== Final Check Conflict Results ===")
     print(f"Total Mismatched Conflicts: {mismatch_count}")
     print("Detailed Mismatched Conflicts:")

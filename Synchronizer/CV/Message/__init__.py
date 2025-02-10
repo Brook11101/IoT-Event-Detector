@@ -58,23 +58,26 @@ def clear_all_streams():
 
 def send_message(rule_name, stream, key, id):
     """
-    向指定的 Redis Stream 发送消息
+    向指定的 Redis Stream 发送消息，支持最多 3 次重试。
 
     :param rule_name: 规则线程的名称（作为 Producer 标识）
     :param stream: 目标 Stream 的名称
-    :param key: 消息类型，取值 "start" 或 "end"，用于区分当前规则线程在开始执行时发送开始消息或结束执行时发送结束消息
+    :param key: 消息类型，取值 "start" 或 "end"
     :param id: 规则的唯一标识（id）
     """
-    # 构造消息数据，将 id 转换为字符串存储
-    message = {
-        "key": key,
-        "id": str(id)
-    }
-    try:
-        msg_id = redis_client.xadd(stream, message)
-        print(f"[{rule_name}] 发送消息成功 -> Stream: {stream}, Key: {key}, Rule-ID: {id}, 消息 ID: {msg_id}")
-    except Exception as e:
-        print(f"[{rule_name}] 发送消息失败: {e}")
+    message = {"key": key, "id": str(id)}
+
+    for attempt in range(3):  # 最多尝试 3 次
+        try:
+            msg_id = redis_client.xadd(stream, message)
+            print(f"[{rule_name}] 发送消息成功 -> Stream: {stream}, Key: {key}, Rule-ID: {id}, 消息 ID: {msg_id}")
+            return  # 发送成功，直接返回
+        except Exception as e:
+            print(f"[{rule_name}] 发送消息失败 (第 {attempt + 1} 次): {e}")
+            time.sleep(0.5)  # 休眠后重试
+
+    print(f"[{rule_name}] 发送消息失败，已达最大重试次数")
+
 
 
 def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_set, offset='0-0'):
@@ -97,20 +100,27 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
     consumer_name = rule_name  # 每个消费者组只有一个消费者
 
     # 尝试创建消费者组，若已存在则捕获 BUSYGROUP 异常
-    try:
-        redis_client.xgroup_create(stream, group_name, id=offset, mkstream=True)
-        print(f"[{rule_name}] 消费者组 {group_name} 创建成功，起始ID: {offset}")
-    except Exception as e:
-        if "BUSYGROUP" in str(e):
-            print(f"[{rule_name}] 消费者组 {group_name} 已存在，继续使用。")
-        else:
-            print(f"[{rule_name}] 创建消费者组 {group_name} 失败: {e}")
-            return False
+    for attempt in range(3):
+        try:
+            redis_client.xgroup_create(stream, group_name, id=offset, mkstream=True)
+            print(f"[{rule_name}] 消费者组 {group_name} 创建成功，起始ID: {offset}")
+            break  # 成功创建后跳出循环
+        except Exception as e:
+            if "BUSYGROUP" in str(e):
+                print(f"[{rule_name}] 消费者组 {group_name} 已存在，继续使用。")
+                break
+            print(f"[{rule_name}] 创建消费者组 {group_name} 失败 (第 {attempt + 1} 次): {e}")
+            time.sleep(0.5)  # 休眠后重试
+    else:
+        print(f"[{rule_name}] 创建消费者组失败，已达最大重试次数")
+        return False  # 超过 3 次则终止
 
     active_rules = set()  # 用于记录 `target_id_set` 里的规则
     own_start_received = False  # 标记是否已收到当前规则自己的 `start` 消息
 
     print(f"[{rule_name}] 开始消费 stream '{stream}' 的消息，消费者组: {group_name}, 消费者: {consumer_name}")
+
+    retry_count = 0  # 消费异常的重试次数
 
     while True:
         try:
@@ -163,6 +173,11 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
                             print(f"[{rule_name}] active_rules 为空且已收到自己的 start 消息，退出消费")
                             return True
 
+
         except Exception as e:
-            print(f"[{rule_name}] 消费消息异常: {e}")
-            return False
+            retry_count += 1
+            print(f"[{rule_name}] 消费消息异常 (第 {retry_count} 次): {e}")
+            time.sleep(0.5)  # 休眠后重试
+            if retry_count >= 3:
+                print(f"[{rule_name}] 消费消息异常已达最大重试次数，停止监听")
+                return False  # 超过 3 次则终止
