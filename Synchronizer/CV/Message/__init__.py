@@ -58,40 +58,43 @@ def clear_all_streams():
 
 def send_message(rule_name, stream, key, id):
     """
-    向指定的 Redis Stream 发送消息，支持最多 3 次重试。
+    向指定的 Redis Stream 发送消息，支持最多 3 次重试，并返回消息的偏移量。
 
     :param rule_name: 规则线程的名称（作为 Producer 标识）
     :param stream: 目标 Stream 的名称
     :param key: 消息类型，取值 "start" 或 "end"
     :param id: 规则的唯一标识（id）
+    :return: 返回消息发送成功后的偏移量 msg_id
     """
     message = {"key": key, "id": str(id)}
 
     for attempt in range(3):  # 最多尝试 3 次
         try:
+            # 向 Redis Stream 发送消息
             msg_id = redis_client.xadd(stream, message)
             print(f"[{rule_name}] 发送消息成功 -> Stream: {stream}, Key: {key}, Rule-ID: {id}, 消息 ID: {msg_id}")
-            return  # 发送成功，直接返回
+            return msg_id  # 发送成功，返回消息偏移量
         except Exception as e:
             print(f"[{rule_name}] 发送消息失败 (第 {attempt + 1} 次): {e}")
             time.sleep(0.5)  # 休眠后重试
 
     print(f"[{rule_name}] 发送消息失败，已达最大重试次数")
+    return None  # 发送失败时返回 None
 
 
 
-def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_set, offset='0-0'):
+def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_set, offset_dict=None):
     """
-    通过 Redis Stream 监听规则的 `start` 和 `end` 消息，仅等待 `target_id_set` 里的规则。
+    通过 Redis Stream 监听规则的 `start` 和 `end` 消息，支持指定 Stream 的不同偏移量。
 
     :param rule_name: 当前规则线程名称
     :param current_rule_id: 当前规则 ID（整数）
     :param stream: 监听的 Redis Stream 名称
     :param target_id_set: 需要等待的规则 ID 集合（只监听这些规则的 start/end 消息）
-    :param offset: 消费起始消息 ID，默认 '0-0' 表示从头开始
+    :param offset_dict: 一个 key-value 形式的字典 {stream_name: offset}，决定不同 Stream 的消费起点
     :return: 当退出消费时返回 True；出现异常则返回 False
     """
-    # 如果没有需要等待的规则，直接返回 True
+
     if not target_id_set:
         print(f"[{rule_name}] 无需等待任何规则，立即执行")
         return True
@@ -99,11 +102,14 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
     group_name = f"CG_{rule_name}"
     consumer_name = rule_name  # 每个消费者组只有一个消费者
 
-    # 尝试创建消费者组，若已存在则捕获 BUSYGROUP 异常
+    # **如果 offset_dict 为空或没有该 stream，默认为 '0-0'**
+    stream_offset = offset_dict.get(stream, '0-0') if offset_dict else '0-0'
+
+    #  **尝试创建消费者组，最多重试 3 次**
     for attempt in range(3):
         try:
-            redis_client.xgroup_create(stream, group_name, id=offset, mkstream=True)
-            print(f"[{rule_name}] 消费者组 {group_name} 创建成功，起始ID: {offset}")
+            redis_client.xgroup_create(stream, group_name, id=stream_offset, mkstream=True)
+            print(f"[{rule_name}] 消费者组 {group_name} 创建成功，起始ID: {stream_offset}")
             break  # 成功创建后跳出循环
         except Exception as e:
             if "BUSYGROUP" in str(e):
@@ -124,12 +130,11 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
 
     while True:
         try:
-            # 使用 XREADGROUP 阻塞等待消息，block=0 表示无限等待
+            #  **使用 offset_dict 里的值作为消费起点**
             response = redis_client.xreadgroup(group_name, consumer_name, {stream: '>'}, count=1, block=0)
-            # response 格式：[ (stream_name, [ (msg_id, {field: value, ...}), ... ]), ... ]
+
             for s_name, messages in response:
                 for msg_id, msg_data in messages:
-                    # 如果消息为初始化消息（含 status 字段），直接 ACK 后跳过
                     if 'status' in msg_data:
                         redis_client.xack(stream, group_name, msg_id)
                         continue
@@ -143,36 +148,29 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
                         continue
 
                     if msg_type == 'start':
-                        # **当前规则自己的 start 消息**
                         if msg_rule_id == current_rule_id:
                             own_start_received = True
                             print(f"[{rule_name}] 收到自己的 start 消息 (rule-id: {msg_rule_id})")
                             redis_client.xack(stream, group_name, msg_id)
 
-                            # **如果没有正在等待的规则，直接返回**
                             if not active_rules:
                                 print(f"[{rule_name}] active_rules 为空，退出消费")
                                 return True
                         else:
-                            # **仅监听 target_id_set 里的规则**
                             if msg_rule_id in target_id_set and not own_start_received:
                                 active_rules.add(msg_rule_id)
-                                print(
-                                    f"[{rule_name}] 监听目标规则 {msg_rule_id} 的 start 消息，当前等待集合: {active_rules}")
+                                print(f"[{rule_name}] 监听目标规则 {msg_rule_id} 的 start 消息，当前等待集合: {active_rules}")
                             redis_client.xack(stream, group_name, msg_id)
 
                     elif msg_type == 'end':
-                        # **仅移除 target_id_set 里的规则**
                         if msg_rule_id in active_rules:
                             active_rules.remove(msg_rule_id)
                             print(f"[{rule_name}] 规则 {msg_rule_id} 结束，移出等待集合，当前等待集合: {active_rules}")
                         redis_client.xack(stream, group_name, msg_id)
 
-                        # **若已收到自己 start 消息且 active_rules 为空，则退出**
                         if own_start_received and not active_rules:
                             print(f"[{rule_name}] active_rules 为空且已收到自己的 start 消息，退出消费")
                             return True
-
 
         except Exception as e:
             retry_count += 1
@@ -181,3 +179,4 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
             if retry_count >= 3:
                 print(f"[{rule_name}] 消费消息异常已达最大重试次数，停止监听")
                 return False  # 超过 3 次则终止
+

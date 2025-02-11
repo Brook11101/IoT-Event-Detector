@@ -124,7 +124,7 @@ def read_static_logs(filename):
     return logs_per_epoch
 
 
-def execute_rule(rule, output_list, lock, dependency_map):
+def execute_rule(rule, output_list, lock, dependency_map, offset_dict):
     """
     执行单条规则：
     1. **获取设备锁，并发送 `start` 消息**。
@@ -139,7 +139,9 @@ def execute_rule(rule, output_list, lock, dependency_map):
     # 1️ **获取设备锁**
     devices_to_lock = sorted(rule["Lock"])  # **按照字典序获取所有锁**
 
-    # 1️⃣ **FIFO Lock: 申请锁，记录申请顺序**
+    local_offset_dict = {}  # 本地偏移量记录，用于更新全局 offset_dict
+
+    # **FIFO Lock: 申请锁，记录申请顺序**
     events = {}  # 存储每个设备的 `FIFOLock` 事件
     with lock:  # 确保 FIFO 申请的原子性
         for device in devices_to_lock :
@@ -149,13 +151,18 @@ def execute_rule(rule, output_list, lock, dependency_map):
     if rule.get("Condition"):
         condition_device = rule["Condition"][0]  # 获取 Condition 设备
         stream_name = f"Stream_{condition_device}"
-        send_message(rule_name, stream_name, "start", rule_id)
+        msg_id = send_message(rule_name, stream_name, "start", rule_id)
+        if msg_id:
+            local_offset_dict[stream_name] = msg_id  # 记录偏移量
+
 
     def acquire_and_send(device, event):
         while not device_locks_fifo[device].try_acquire(event):
             continue# 轮询 `try_acquire()`
         stream_name = f"Stream_{device}"
-        send_message(rule_name, stream_name, "start", rule_id)
+        msg_id = send_message(rule_name, stream_name, "start", rule_id)
+        if msg_id:
+            local_offset_dict[stream_name] = msg_id  # 记录偏移量
         device_locks_fifo[device].release()  # 发送完 `start` 立即释放锁
 
     threads = [threading.Thread(target=acquire_and_send, args=(dev, ev)) for dev, ev in events.items()]
@@ -173,7 +180,7 @@ def execute_rule(rule, output_list, lock, dependency_map):
                 stream_name = f"Stream_{device}"
 
                 def worker():
-                    result = consume_messages_from_offset(rule_name, rule_id, stream_name, wait_rules, '0-0')
+                    result = consume_messages_from_offset(rule_name, rule_id, stream_name, wait_rules, offset_dict)
                     results.append(result)  # 存储线程返回值
 
                 thread = threading.Thread(target=worker)
@@ -217,8 +224,12 @@ def execute_rule(rule, output_list, lock, dependency_map):
             device_locks[device].release()
         print(f"规则 {rule_id} 执行完成，已释放锁：{devices_to_lock}")
 
+        with lock:
+            offset_dict.update(local_offset_dict)
+            print(f"规则 {rule_id} 更新 offset_dict: {local_offset_dict}")
 
-def process_epoch(epoch_logs, output_logs):
+
+def process_epoch(epoch_logs, output_logs, offset_dict):
     """
     并发执行单个轮次的所有规则，按实际完成顺序记录。
     """
@@ -229,7 +240,7 @@ def process_epoch(epoch_logs, output_logs):
     dependency_map = build_dependency_map(s2)
 
     for log in epoch_logs:
-        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock, dependency_map))
+        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock, dependency_map, offset_dict))
         threads.append(thread)
         thread.start()
 
@@ -242,9 +253,10 @@ def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Even
     """
     epochs_logs = read_static_logs(input_file)
     final_logs = []
+    offset_dict = {}  # 维护每个 Stream 的消费起始偏移量
 
     for epoch_logs in epochs_logs:
-        process_epoch(epoch_logs, final_logs)
+        process_epoch(epoch_logs, final_logs,offset_dict)
 
     # 记录最终执行顺序
     with open(output_file, "w", encoding="utf-8") as f:
