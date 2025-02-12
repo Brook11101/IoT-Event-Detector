@@ -1,90 +1,83 @@
 import ast
 
-def detectRaceCondition(logs):
+
+def detectRaceCondition_per_epoch(epochs_logs):
     """
-    仅统计/记录 4 类冲突：
-      - Action Conflict (AC)
-      - Unexpected Conflict (UC)
-      - Condition Block (CBK)
-      - Condition Pass (CP)
+    **对每个轮次(epoch)单独执行 Race Condition 检测，并记录冲突设备**。
 
-    先检测 Race Condition，并同时记录冲突设备。
+    :param epochs_logs: 轮次划分的日志数据
+    :return: (rc_dict, rc_dict_with_device)
+             rc_dict:      { "AC": [...], "UC": [...], "CBK": [...], "CP": [...] }
+             rc_dict_with_device:  { "AC": [...], "UC": [...], "CBK": [...], "CP": [...] }
     """
 
-    rc_dict = {"AC": [], "UC": [], "CBK": [], "CP": []}  # 仅存冲突的规则对
-    rc_dict_with_device = {"AC": [], "UC": [], "CBK": [], "CP": []}  # 额外存储设备信息
+    rc_dict = {"AC": [], "UC": [], "CBK": [], "CP": []}  # **存储所有轮次的 Race Condition 结果**
+    rc_dict_with_device = {"AC": [], "UC": [], "CBK": [], "CP": []}  # **存储冲突设备信息**
+    logged_pairs = set()  # 记录已检测的 conflict pair，防止重复添加
 
-    logged_pairs = set()  # 记录 (former_rule.id, latter_rule.id, conflict_type)
+    for epoch_logs in epochs_logs:  # **逐个轮次(epoch)执行Race Condition检测**
+        for i in range(len(epoch_logs)):
+            current_rule = epoch_logs[i]
+            current_actions = current_rule["Action"]
+            cur_rule_id = current_rule["id"]
 
-    for i in range(len(logs)):
-        current_rule = logs[i]
-        current_actions = current_rule["Action"]
-        cur_rule_id = current_rule["id"]
-
-        # Condition Block (CBK)
-        if current_rule['status'] == 'skipped' and current_rule.get('Condition'):
-            cond_dev, _ = current_rule['Condition'][0], current_rule['Condition'][1]
-            for j in range(i - 1, -1, -1):
-                former_rule = logs[j]
-                frm_rule_id = former_rule["id"]
-                former_actions = former_rule["Action"]
-
-                for former_act in former_actions:
-                    if former_act[0] == cond_dev:
-                        pair_cbk = (frm_rule_id, cur_rule_id)
-                        conflict_device = former_act[0]  # 冲突设备
-
-                        if pair_cbk not in logged_pairs:
-                            logged_pairs.add(pair_cbk)
-                            rc_dict["CBK"].append(pair_cbk)
-                            rc_dict_with_device["CBK"].append((pair_cbk, conflict_device))
-                        break
-                else:
-                    continue
-                break
-
-        # 其他 Race Condition 只在 `run` 规则里检测
-        if current_rule['status'] == 'run':
-            # Action Conflict / Unexpected Conflict
-            for j in range(i - 1, -1, -1):
-                former_rule = logs[j]
-                frm_rule_id = former_rule["id"]
-                former_actions = former_rule["Action"]
-
-                for latter_act in current_actions:
-                    for former_act in former_actions:
-                        if latter_act[0] == former_act[0] and latter_act[1] != former_act[1]:
-                            pair = (frm_rule_id, cur_rule_id)
-                            conflict_device = latter_act[0]  # 冲突设备
-
-                            if former_rule["ancestor"] == current_rule["ancestor"]:
-                                if pair not in logged_pairs:
-                                    logged_pairs.add(pair)
-                                    rc_dict["AC"].append(pair)
-                                    rc_dict_with_device["AC"].append((pair, conflict_device))
-                            else:
-                                if pair not in logged_pairs:
-                                    logged_pairs.add(pair)
-                                    rc_dict["UC"].append(pair)
-                                    rc_dict_with_device["UC"].append((pair, conflict_device))
-
-            # Condition Pass (CP)
-            if current_rule.get('Condition'):
-                cond_dev, cond_state = current_rule['Condition'][0], current_rule['Condition'][1]
-                for j in range(i - 1, -1, -1):
-                    former_rule = logs[j]
+            # **Condition Block (CBK)**
+            if current_rule['status'] == 'skipped' and current_rule.get('Condition'):
+                cond_dev, _ = current_rule['Condition'][0], current_rule['Condition'][1]
+                for j in range(i - 1, -1, -1):  # **只在当前轮次(epoch)内回溯**
+                    former_rule = epoch_logs[j]
                     frm_rule_id = former_rule["id"]
-                    if [cond_dev, cond_state] in former_rule["Action"]:
-                        pair_cp = (frm_rule_id, cur_rule_id)
-                        conflict_device = cond_dev  # 冲突设备
+                    for former_act in former_rule["Action"]:
+                        if former_act[0] == cond_dev:
+                            pair_cbk = (frm_rule_id, cur_rule_id)
+                            conflict_device = former_act[0]  # **冲突设备**
+                            if pair_cbk not in logged_pairs:
+                                logged_pairs.add(pair_cbk)
+                                rc_dict["CBK"].append(pair_cbk)
+                                rc_dict_with_device["CBK"].append((pair_cbk, conflict_device))
+                            break
+                    else:
+                        continue
+                    break
 
-                        if pair_cp not in logged_pairs:
-                            logged_pairs.add(pair_cp)
-                            rc_dict["CP"].append(pair_cp)
-                            rc_dict_with_device["CP"].append((pair_cp, conflict_device))
-                        break
+            # **Action Conflict / Unexpected Conflict**
+            if current_rule['status'] == 'run':
+                for j in range(i - 1, -1, -1):  # **只在当前轮次(epoch)内查找**
+                    former_rule = epoch_logs[j]
+                    frm_rule_id = former_rule["id"]
 
-    return rc_dict, rc_dict_with_device  # 返回两个字典
+                    for latter_act in current_actions:
+                        for former_act in former_rule["Action"]:
+                            if latter_act[0] == former_act[0] and latter_act[1] != former_act[1]:
+                                pair = (frm_rule_id, cur_rule_id)
+                                conflict_device = latter_act[0]  # **冲突设备**
+                                if former_rule["ancestor"] == current_rule["ancestor"]:
+                                    if pair not in logged_pairs:
+                                        logged_pairs.add(pair)
+                                        rc_dict["AC"].append(pair)
+                                        rc_dict_with_device["AC"].append((pair, conflict_device))
+                                else:
+                                    if pair not in logged_pairs:
+                                        logged_pairs.add(pair)
+                                        rc_dict["UC"].append(pair)
+                                        rc_dict_with_device["UC"].append((pair, conflict_device))
+
+                # **Condition Pass (CP)**
+                if current_rule.get('Condition'):
+                    cond_dev, cond_state = current_rule['Condition'][0], current_rule['Condition'][1]
+                    for j in range(i - 1, -1, -1):
+                        former_rule = epoch_logs[j]
+                        frm_rule_id = former_rule["id"]
+                        if [cond_dev, cond_state] in former_rule["Action"]:
+                            pair_cp = (frm_rule_id, cur_rule_id)
+                            conflict_device = cond_dev  # **冲突设备**
+                            if pair_cp not in logged_pairs:
+                                logged_pairs.add(pair_cp)
+                                rc_dict["CP"].append(pair_cp)
+                                rc_dict_with_device["CP"].append((pair_cp, conflict_device))
+                            break
+
+    return rc_dict, rc_dict_with_device  # **返回冲突对和对应的冲突设备**
 
 
 def read_static_logs(log_file):
@@ -152,12 +145,11 @@ def get_user_scenario(log_file=r"E:\研究生信息收集\论文材料\IoT-Event
     读取 `static_logs.txt` 并检测 Race Condition，仅在同一轮次内按照 `score` 进行排序。
     """
     logs_per_epoch = read_static_logs(log_file)  # **获取按轮次分组的日志**
-    logs = [rule for epoch in logs_per_epoch for rule in epoch]
-
-    results, results_with_device = detectRaceCondition(logs)
+    results, results_with_device = detectRaceCondition_per_epoch(logs_per_epoch)
 
     sorted_rc_dict, sorted_rc_dict_with_device = sort_by_score(logs_per_epoch, results, results_with_device)
 
+    # 基于score得到满足用户定义的合理race condition执行顺序
     return sorted_rc_dict, sorted_rc_dict_with_device
 
 
@@ -199,13 +191,13 @@ def build_dependency_map(sorted_rc_dict_with_device):
 if __name__ == "__main__":
     sorted_results, sorted_results_with_device = get_user_scenario()
 
-    print("=== Final Detection Results (Reordered) ===")
+    print("=== Final User Scenarios ===")
     print(f"Action Conflict (AC): {len(sorted_results['AC'])} conflicts")
     print(f"Unexpected Conflict (UC): {len(sorted_results['UC'])} conflicts")
     print(f"Condition Block (CBK): {len(sorted_results['CBK'])} conflicts")
     print(f"Condition Pass (CP): {len(sorted_results['CP'])} conflicts")
 
-    print("\nConflict Pairs:")
+    print("\nScenario Pairs:")
     for conflict_type, pairs in sorted_results.items():
         print(f"{conflict_type} ({len(pairs)} conflicts): {pairs}")
 
