@@ -2,9 +2,6 @@ import copy
 import numpy as np
 from Synchronizer.CV import RuleSet
 
-# 用于多次循环场景的次数
-times = 1
-
 deviceStatus = {
     "Smoke": ["unsmoke", "smoke"],
     "Location": ["home", "away"],
@@ -38,9 +35,7 @@ deviceStatus = {
 }
 
 def changeStatus(device):
-    """
-    随机给定设备分配一个新的状态索引
-    """
+    """随机给定设备分配一个新的状态索引"""
     status_count = len(deviceStatus[device])
     return np.random.randint(0, status_count)
 
@@ -62,68 +57,53 @@ def updateOfficeStatus(office):
 
     return ans
 
-def runRules(office, Triggers, rules, id):
-    # triggers = [[“time”：xx]， [“temxxx”：xx]]
-    # [{id,status,time,rules, "triggerId", "actionIds", "ancestor"}]
-    # 维护一个家庭状态， 维护一个Triggers 和 tirggerId,
-    # 找到所有当前可能执行的规则，随机挑选执行，判断condition是否满足，如果不满足就是skipped，如果满足就修改office状态，把action加入到新的Triggers并给出triggerId。
-
+def runRules(office, Triggers, rules, id, log_file_path):
+    """
+    执行规则，生成静态日志，并写入日志文件
+    """
     triggerId = {}
     epoch = 0
     logs = []
     time = int(office["time"])
     Actions = []
     actionId = {}
-    logfile = open(r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt", "a", encoding="utf-8")
-    rulesCountPerEpoch = []
 
+    rulesCountPerEpoch = []
 
     for i in range(len(Triggers)):
         triggerId[str(Triggers[i])] = 0
 
     while len(Triggers) != 0 and epoch < 10:
         potentialRules = findPotentialRules(Triggers, rules)
-        # 随机打乱，不放回抽样
-        # potentialRules = np.random.choice(potentialRules, len(potentialRules), False)
         round_rule_count = len(potentialRules)
         rulesCountPerEpoch.append(round_rule_count)
 
         for rule in potentialRules:
-            # 条件不满足，跳过执行
-            if len(rule['Condition'])  != 0 and ((rule['Condition'][0] == 'time' and int(rule['Condition'][1]) != int(office["time"])) or office[rule['Condition'][0]] != rule['Condition'][1]):
-                temp = copy.copy(rule)
-                temp["id"] = id
+            temp = copy.copy(rule)
+            temp["id"] = id
+            temp["time"] = time
+
+            if len(rule['Condition']) != 0 and (
+                (rule['Condition'][0] == 'time' and int(rule['Condition'][1]) != int(office["time"])) or
+                office[rule['Condition'][0]] != rule['Condition'][1]
+            ):
                 temp["status"] = "skipped"
-                temp["time"] = time
-                if triggerId[str(rule["Trigger"])] == 0:
-                    temp["triggerId"] = id
-                else:
-                    temp["triggerId"] = triggerId[str(rule["Trigger"])]
+                temp["triggerId"] = triggerId.get(str(rule["Trigger"]), id)
                 temp["actionIds"] = []
                 temp["ancestor"] = ""
                 logs.append(temp)
             else:
-                # 生成记录
-                temp = copy.copy(rule)
-                temp["id"] = id
                 temp["status"] = "run"
-                temp["time"] = time
-                # 没有triggerId就用当前的id，说明是一个新触发的trigger
-                if triggerId[str(rule["Trigger"])] == 0:
-                    temp["triggerId"] = id
-                    temp["ancestor"] = id
-                else:
-                    temp["triggerId"] = triggerId[str(rule["Trigger"])]
-                    temp["ancestor"] = ""
+                temp["triggerId"] = triggerId.get(str(rule["Trigger"]), id)
+                temp["ancestor"] = temp["triggerId"] if triggerId.get(str(rule["Trigger"])) == 0 else ""
                 temp["actionIds"] = []
                 logs.append(temp)
 
-                # 添加新的Action
                 for item in rule["Action"]:
-                    # 动作执行，修改房间状态
                     office[item[0]] = item[1]
                     Actions.append(item)
                     actionId[str(item)] = id
+
             id += 1
 
         Triggers = Actions
@@ -138,75 +118,41 @@ def runRules(office, Triggers, rules, id):
                 if logs[i]["id"] == log["triggerId"]:
                     log["ancestor"] = logs[i]["ancestor"]
 
+    with open(log_file_path, "a", encoding="utf-8") as logfile:
+        start_idx = 0
+        for count in rulesCountPerEpoch:
+            end_idx = start_idx + count
+            for j in range(start_idx, end_idx):
+                logfile.write(str(logs[j]) + "\n")
+            logfile.write("\n")
+            start_idx = end_idx
 
-    start_idx = 0
-    for idx, count in enumerate(rulesCountPerEpoch):
-        end_idx = start_idx + count
-        # 写这一轮
-        for j in range(start_idx, end_idx):
-            logfile.write(str(logs[j]) + "\n")
-
-        # 轮次间插入空行
-        logfile.write("\n")
-        start_idx = end_idx
-
-    logfile.close()
     return logs, id
 
 def findPotentialRules(Triggers, rules):
-    """
-    用于筛选：触发器(Triggers)里出现的 => 哪些规则可执行
-    """
-    potential_rules = []
-    for rule in rules:
-        if rule["Trigger"] in Triggers:
-            potential_rules.append(rule)
-    return potential_rules
+    """用于筛选触发器 (Triggers) 里出现的 => 哪些规则可执行"""
+    return [rule for rule in rules if rule["Trigger"] in Triggers]
 
-
-if __name__ == '__main__':
-    # 初始场景
+def run_static_simulation(times=1, log_file_path=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt"):
+    """
+    运行规则模拟，生成静态日志
+    :param times: 运行实验的次数
+    :param log_file_path: 结果日志文件的路径
+    """
     office = {
         "time": "000000",
         "temperature": 20,
         "humidity": 50,
         "illumination": 50,
-        "Smoke": 0,
-        "Location": 0,
-        "WaterLeakage": 0,
-        "MijiaCurtain1": 0,
-        "MijiaCurtain2": 0,
-        "YeelightBulb": 0,
-        "SmartThingsDoorSensor": 0,
-        "MijiaDoorLock": 0,
-        "RingDoorbell": 0,
-        "iRobotRoomba": 0,
-        "AlexaVoiceAssistance": 0,
-        "PhilipsHueLight": 0,
-        "MideaAirConditioner": 0,
-        "NetatmoWeatherStation": 0,
-        "YeelightCeilingLamp1": 0,
-        "YeelightCeilingLamp2": 0,
-        "YeelightCeilingLamp3": 0,
-        "YeelightCeilingLamp5": 0,
-        "YeelightCeilingLamp6": 0,
-        "WemoSmartPlug": 0,
-        "WyzeCamera": 0,
-        "SmartLifePIRmotionsensor1": 0,
-        "SmartLifePIRmotionsensor2": 0,
-        "SmartLifePIRmotionsensor3": 0,
-        "MijiaPurifier": 0,
-        "MijiaProjector": 0,
-        "Notification": 0,
+        **{device: 0 for device in deviceStatus.keys()}  # 设备初始状态
     }
 
     rules = RuleSet.get_all_rules()
 
     # 初始化日志文件（清空）
-    with open(r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt", "w", encoding="utf-8"):
+    with open(log_file_path, "w", encoding="utf-8"):
         pass
 
-    # 从 1 开始给规则分配ID
     rule_id = 1
 
     for _ in range(times):
@@ -214,7 +160,8 @@ if __name__ == '__main__':
         triggers = updateOfficeStatus(office)
 
         print('触发规则')
-        # 每轮会将新日志追加到 static_logs.txt
-        logs, rule_id = runRules(office, triggers, rules, rule_id)
+        logs, rule_id = runRules(office, triggers, rules, rule_id, log_file_path)
 
-    print("== Simulation Done. Logs written to static_logs.txt. ==")
+    print(f"=={rule_id} Simulation Done. Logs written to {log_file_path} ==")
+
+    return rule_id

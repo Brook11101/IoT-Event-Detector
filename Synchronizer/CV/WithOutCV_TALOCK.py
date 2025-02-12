@@ -221,7 +221,7 @@ def check_racecondition_with_score(conflict_dict, rule_scores):
     return updated_conflict_dict, mismatch_count
 
 
-def main():
+def WithOutCV_TALOCK():
     # 生成 `nocv_logs.txt`
     generate_nocv_logs()
 
@@ -252,4 +252,4 @@ def main():
     return conflict_result, mismatch_count
 
 if __name__ == "__main__":
-    main()
+    WithOutCV_TALOCK()
