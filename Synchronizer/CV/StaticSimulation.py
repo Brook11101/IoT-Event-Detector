@@ -75,35 +75,50 @@ def runRules(office, Triggers, rules, id, log_file_path):
 
     while len(Triggers) != 0 and epoch < 10:
         potentialRules = findPotentialRules(Triggers, rules)
+        # 随机打乱，不放回抽样
+        potentialRules = np.random.choice(potentialRules, len(potentialRules), False)
+
         round_rule_count = len(potentialRules)
         rulesCountPerEpoch.append(round_rule_count)
 
         for rule in potentialRules:
-            temp = copy.copy(rule)
-            temp["id"] = id
-            temp["time"] = time
-
+            # 条件不满足，跳过执行
             if len(rule['Condition']) != 0 and (
-                (rule['Condition'][0] == 'time' and int(rule['Condition'][1]) != int(office["time"])) or
-                office[rule['Condition'][0]] != rule['Condition'][1]
-            ):
+                    (rule['Condition'][0] == 'time' and int(rule['Condition'][1]) != int(office["time"])) or office[
+                rule['Condition'][0]] != rule['Condition'][1]):
+                temp = copy.copy(rule)
+                temp["id"] = id
                 temp["status"] = "skipped"
-                temp["triggerId"] = triggerId.get(str(rule["Trigger"]), id)
+                temp["time"] = time
+                if triggerId[str(rule["Trigger"])] == 0:
+                    temp["triggerId"] = id
+                else:
+                    temp["triggerId"] = triggerId[str(rule["Trigger"])]
                 temp["actionIds"] = []
                 temp["ancestor"] = ""
                 logs.append(temp)
             else:
+                # 生成记录
+                temp = copy.copy(rule)
+                temp["id"] = id
                 temp["status"] = "run"
-                temp["triggerId"] = triggerId.get(str(rule["Trigger"]), id)
-                temp["ancestor"] = temp["triggerId"] if triggerId.get(str(rule["Trigger"])) == 0 else ""
+                temp["time"] = time
+                # 没有triggerId就用当前的id，说明是一个新触发的trigger
+                if triggerId[str(rule["Trigger"])] == 0:
+                    temp["triggerId"] = id
+                    temp["ancestor"] = id
+                else:
+                    temp["triggerId"] = triggerId[str(rule["Trigger"])]
+                    temp["ancestor"] = ""
                 temp["actionIds"] = []
                 logs.append(temp)
 
+                # 添加新的Action
                 for item in rule["Action"]:
+                    # 动作执行，修改房间状态
                     office[item[0]] = item[1]
                     Actions.append(item)
                     actionId[str(item)] = id
-
             id += 1
 
         Triggers = Actions
@@ -133,7 +148,7 @@ def findPotentialRules(Triggers, rules):
     """用于筛选触发器 (Triggers) 里出现的 => 哪些规则可执行"""
     return [rule for rule in rules if rule["Trigger"] in Triggers]
 
-def run_static_simulation(times=1, log_file_path=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt"):
+def run_static_simulation(times=5, log_file_path=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt"):
     """
     运行规则模拟，生成静态日志
     :param times: 运行实验的次数
@@ -165,3 +180,5 @@ def run_static_simulation(times=1, log_file_path=r"E:\研究生信息收集\论�
     print(f"=={rule_id} Simulation Done. Logs written to {log_file_path} ==")
 
     return rule_id
+
+run_static_simulation()

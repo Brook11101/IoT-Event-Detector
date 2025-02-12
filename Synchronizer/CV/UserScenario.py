@@ -105,7 +105,7 @@ def read_static_logs(log_file):
     return logs_per_epoch  # **返回按轮次分组的日志**
 
 
-def reorder_by_score(logs_per_epoch, rc_dict, rc_dict_with_device):
+def sort_by_score(logs_per_epoch, rc_dict, rc_dict_with_device):
     """
     重新排序 Race Condition 结果，使得 `score` 更大的规则在左边，仅在同一轮次内调整。
     同时，对 `rc_dict_with_device` 进行同步排序，保持设备信息正确。
@@ -147,7 +147,7 @@ def reorder_by_score(logs_per_epoch, rc_dict, rc_dict_with_device):
     return rc_dict, rc_dict_with_device  # **返回两个已排序的字典**
 
 
-def getUserTemplate(log_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt"):
+def get_user_scenario(log_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt"):
     """
     读取 `static_logs.txt` 并检测 Race Condition，仅在同一轮次内按照 `score` 进行排序。
     """
@@ -155,7 +155,8 @@ def getUserTemplate(log_file=r"E:\研究生信息收集\论文材料\IoT-Event-D
     logs = [rule for epoch in logs_per_epoch for rule in epoch]
 
     results, results_with_device = detectRaceCondition(logs)
-    sorted_rc_dict, sorted_rc_dict_with_device = reorder_by_score(logs_per_epoch, results, results_with_device)
+
+    sorted_rc_dict, sorted_rc_dict_with_device = sort_by_score(logs_per_epoch, results, results_with_device)
 
     return sorted_rc_dict, sorted_rc_dict_with_device
 
@@ -196,7 +197,7 @@ def build_dependency_map(sorted_rc_dict_with_device):
     return dependency_map
 
 if __name__ == "__main__":
-    sorted_results, sorted_results_with_device = getUserTemplate()
+    sorted_results, sorted_results_with_device = get_user_scenario()
 
     print("=== Final Detection Results (Reordered) ===")
     print(f"Action Conflict (AC): {len(sorted_results['AC'])} conflicts")
