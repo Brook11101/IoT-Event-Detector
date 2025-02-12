@@ -82,17 +82,18 @@ def send_message(rule_name, stream, key, id):
     return None  # 发送失败时返回 None
 
 
-
-def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_set, offset_dict=None):
+# 这个函数之所以不完善，还能检测出来，是因为缺乏标记，应该标记出target_id_set中应该来但是最终一直都没来的规则，返回到主线程中，来说明：当前规则不是不等待，而是那些规则已经超过了时间窗口。
+def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_set, offset_dict=None, missing_rules=None):
     """
-    通过 Redis Stream 监听规则的 `start` 和 `end` 消息，支持指定 Stream 的不同偏移量。
+    通过 Redis Stream 监听规则的 `start` 和 `end` 消息，并标记 `target_id_set` 中 **应该来但没来的规则**。
 
     :param rule_name: 当前规则线程名称
     :param current_rule_id: 当前规则 ID（整数）
     :param stream: 监听的 Redis Stream 名称
     :param target_id_set: 需要等待的规则 ID 集合（只监听这些规则的 start/end 消息）
-    :param offset_dict: 一个 key-value 形式的字典 {stream_name: offset}，决定不同 Stream 的消费起点
-    :return: 当退出消费时返回 True；出现异常则返回 False
+    :param offset_dict: {stream_name: offset}，决定不同 Stream 的消费起点
+    :param missing_rules: 用于收集未出现的规则，格式 [(当前规则ID, 缺失规则ID)]
+    :return: True (正常退出) / False (异常退出)
     """
 
     if not target_id_set:
@@ -101,10 +102,11 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
 
     group_name = f"CG_{rule_name}"
     consumer_name = rule_name  # 每个消费者组只有一个消费者
+    missing_rules = missing_rules if missing_rules is not None else []
 
     # **如果 offset_dict 为空或没有该 stream，默认为 '0-0'**
-    stream_offset = offset_dict.get(stream, '0-0') if offset_dict else '0-0'
-
+    # stream_offset = offset_dict.get(stream, '0-0') if offset_dict else '0-0'
+    stream_offset = '0-0'
     #  **尝试创建消费者组，最多重试 3 次**
     for attempt in range(3):
         try:
@@ -123,6 +125,7 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
 
     active_rules = set()  # 用于记录 `target_id_set` 里的规则
     own_start_received = False  # 标记是否已收到当前规则自己的 `start` 消息
+    seen_start_rules = set()  # 记录已消费的 start 消息中的规则 ID
 
     print(f"[{rule_name}] 开始消费 stream '{stream}' 的消息，消费者组: {group_name}, 消费者: {consumer_name}")
 
@@ -155,10 +158,14 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
 
                             if not active_rules:
                                 print(f"[{rule_name}] active_rules 为空，退出消费")
+                                missing_rules_in_target = target_id_set - seen_start_rules
+                                for missing_rule in missing_rules_in_target:
+                                    missing_rules.append((current_rule_id, missing_rule))
                                 return True
                         else:
                             if msg_rule_id in target_id_set and not own_start_received:
                                 active_rules.add(msg_rule_id)
+                                seen_start_rules.add(msg_rule_id)
                                 print(f"[{rule_name}] 监听目标规则 {msg_rule_id} 的 start 消息，当前等待集合: {active_rules}")
                             redis_client.xack(stream, group_name, msg_id)
 
@@ -170,6 +177,11 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
 
                         if own_start_received and not active_rules:
                             print(f"[{rule_name}] active_rules 为空且已收到自己的 start 消息，退出消费")
+
+                            # **标记未出现的规则**
+                            missing_rules_in_target = target_id_set - seen_start_rules
+                            for missing_rule in missing_rules_in_target:
+                                missing_rules.append((current_rule_id, missing_rule))
                             return True
 
         except Exception as e:

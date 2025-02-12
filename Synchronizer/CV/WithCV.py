@@ -2,85 +2,13 @@ import threading
 import time
 import random
 import ast
-from Synchronizer.CV.UserTemplate import getUserTemplate  # 用户定义的模板，用于比对预期顺序
+from Synchronizer.CV.UserScenario import get_user_scenario  # 用户定义的模板，用于比对预期顺序
+from Synchronizer.CV.UserScenario import build_dependency_map  # 用户定义的模板，用于比对预期顺序
 from RuleSet import deviceStatus
 from Message import send_message
 from Message import create_streams
 from Message import clear_all_streams
 from Message import consume_messages_from_offset
-
-
-def build_dependency_map(sorted_rc_dict_with_device):
-    """
-    根据 `sorted_rc_dict_with_device` 构建规则 ID 之间的依赖关系，按照设备 (deviceName) 组织。
-
-    依赖字典结构:
-    {
-        rule_id: {
-            deviceName1: {依赖的规则ID集合},
-            deviceName2: {依赖的规则ID集合},
-            ...
-        },
-        ...
-    }
-
-    仅当规则 ID 需要等待其他规则时，才会记录在字典里。
-    """
-
-    dependency_map = {}
-
-    # **遍历所有 Race Condition 记录**
-    for conflict_type, pairs_with_device in sorted_rc_dict_with_device.items():
-        for (wait_id, current_id), device in pairs_with_device:
-            # **初始化 `current_id` 在 dependency_map 里的结构**
-            if current_id not in dependency_map:
-                dependency_map[current_id] = {}
-
-            # **初始化 `device` 在 `current_id` 里的集合**
-            if device not in dependency_map[current_id]:
-                dependency_map[current_id][device] = set()
-
-            # **记录 `current_id` 需要等待的规则 `wait_id`**
-            dependency_map[current_id][device].add(wait_id)
-
-    return dependency_map
-
-class FIFOLock:
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.condition = threading.Condition(self.lock)
-        self.queue = []
-        self.owner = None  # 记录当前持有锁的事件（线程）
-
-    def async_acquire(self):
-        """
-        异步申请锁：返回一个 event，后续 try_acquire(event) 判断自己是否获取到锁。
-        """
-        event = threading.Event()
-        with self.lock:
-            self.queue.append(event)
-            self.condition.notify_all()
-        return event
-
-    def try_acquire(self, event):
-        """
-        如果自己在队首且锁无人持有，则获取锁并返回 True，否则返回 False。
-        """
-        with self.lock:
-            if self.queue and self.queue[0] == event and self.owner is None:
-                self.owner = event
-                self.queue.pop(0)
-                return True
-        return False
-
-    def release(self):
-        """
-        释放锁，清除当前 owner 并唤醒其他等待线程。
-        """
-        with self.lock:
-            self.owner = None
-            self.condition.notify_all()
-
 
 class DeviceLock:
     """
@@ -107,7 +35,6 @@ class DeviceLock:
 # === 创建全局设备锁字典 ===
 deviceStatus = deviceStatus
 device_locks = {device: DeviceLock() for device in deviceStatus}  # 设备锁池
-device_locks_fifo = {device: FIFOLock() for device in deviceStatus}
 
 ### === 第一部分：读取和生成 `cv_logs.txt` === ###
 def read_static_logs(filename):
@@ -124,7 +51,7 @@ def read_static_logs(filename):
     return logs_per_epoch
 
 
-def execute_rule(rule, output_list, lock, dependency_map, offset_dict):
+def execute_rule(rule, output_list, lock, dependency_map, offset_dict, barrier, missing_rules):
     """
     执行单条规则：
     1. **获取设备锁，并发送 `start` 消息**。
@@ -135,17 +62,12 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict):
 
     rule_id = rule["id"]
     rule_name = f"rule-{rule_id}"
-
     # 1️ **获取设备锁**
     devices_to_lock = sorted(rule["Lock"])  # **按照字典序获取所有锁**
-
     local_offset_dict = {}  # 本地偏移量记录，用于更新全局 offset_dict
 
-    # **FIFO Lock: 申请锁，记录申请顺序**
-    events = {}  # 存储每个设备的 `FIFOLock` 事件
-    with lock:  # 确保 FIFO 申请的原子性
-        for device in devices_to_lock :
-            events[device] = device_locks_fifo[device].async_acquire()
+    # **等待所有线程到达屏障**
+    barrier.wait()
 
     #  **如果规则有 Condition，不为空，则给 Condition 设备也发送 start**
     if rule.get("Condition"):
@@ -155,19 +77,17 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict):
         if msg_id:
             local_offset_dict[stream_name] = msg_id  # 记录偏移量
 
+    for device in devices_to_lock:
+        device_locks[device].acquire()
 
-    def acquire_and_send(device, event):
-        while not device_locks_fifo[device].try_acquire(event):
-            continue# 轮询 `try_acquire()`
+
+    for device in devices_to_lock:
         stream_name = f"Stream_{device}"
         msg_id = send_message(rule_name, stream_name, "start", rule_id)
         if msg_id:
             local_offset_dict[stream_name] = msg_id  # 记录偏移量
-        device_locks_fifo[device].release()  # 发送完 `start` 立即释放锁
+        device_locks[device].release()
 
-    threads = [threading.Thread(target=acquire_and_send, args=(dev, ev)) for dev, ev in events.items()]
-    for t in threads: t.start()
-    for t in threads: t.join()  # 等待所有 `start` 发送完毕
 
 
     # 4️ **监听依赖的 `end` 消息**
@@ -180,7 +100,7 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict):
                 stream_name = f"Stream_{device}"
 
                 def worker():
-                    result = consume_messages_from_offset(rule_name, rule_id, stream_name, wait_rules, offset_dict)
+                    result = consume_messages_from_offset(rule_name, rule_id, stream_name, wait_rules, offset_dict, missing_rules)
                     results.append(result)  # 存储线程返回值
 
                 thread = threading.Thread(target=worker)
@@ -195,7 +115,8 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict):
         if all(results):
             print(f"规则 {rule_id} 依赖等待成功")
         else:
-            print(f"规则 {rule_id} 依赖等待失败")
+            print(f"规则 {rule_id} 依赖等待失败,停止执行")
+            return
 
     # 5️ **重新获取设备锁**
     for device in devices_to_lock:
@@ -229,18 +150,27 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict):
             print(f"规则 {rule_id} 更新 offset_dict: {local_offset_dict}")
 
 
-def process_epoch(epoch_logs, output_logs, offset_dict):
+def process_epoch(epoch_logs, output_logs, offset_dict, missing_rules):
     """
-    并发执行单个轮次的所有规则，按实际完成顺序记录。
+    1. **创建 Barrier，确保所有规则线程同步启动**。
+    2. **为每个规则创建线程，所有线程到达 Barrier 后同时开始**。
+    3. **等待所有线程执行完毕**。
     """
+    num_rules = len(epoch_logs)
+    if num_rules == 0:
+        return
+
+    # **创建 Barrier**
+    barrier = threading.Barrier(num_rules)
+
     threads = []
     lock = threading.Lock()
 
-    s1, s2 = getUserTemplate()
+    s1, s2 = get_user_scenario()
     dependency_map = build_dependency_map(s2)
 
     for log in epoch_logs:
-        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock, dependency_map, offset_dict))
+        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock, dependency_map, offset_dict, barrier, missing_rules))
         threads.append(thread)
         thread.start()
 
@@ -249,14 +179,19 @@ def process_epoch(epoch_logs, output_logs, offset_dict):
 
 def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt", output_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\cv_logs.txt"):
     """
-    读取 `static_logs.txt`，模拟无条件变量情况下的随机执行，并存入 `nocv_logs.txt`。
+    1. **读取 `static_logs.txt`**，获取规则数据。
+    2. **对每个 `epoch_logs` 轮次，使用 `Barrier` 机制执行所有规则**。
+    3. **将最终执行顺序存入 `cv_logs.txt`**，不同 `epoch` 之间插入空行区分。
+    4. **返回 missing_rules，记录哪些规则本应该出现但没有出现。**
     """
     epochs_logs = read_static_logs(input_file)
     final_logs = []
     offset_dict = {}  # 维护每个 Stream 的消费起始偏移量
+    missing_rules = []  # **收集所有轮次的 missing_rules**
 
     for epoch_logs in epochs_logs:
-        process_epoch(epoch_logs, final_logs,offset_dict)
+        process_epoch(epoch_logs, final_logs,offset_dict,missing_rules)
+        final_logs.append("")  # **插入空行，区分不同 epoch**
 
     # 记录最终执行顺序
     with open(output_file, "w", encoding="utf-8") as f:
@@ -264,6 +199,8 @@ def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Even
             f.write(str(log) + "\n")
 
     print(f"Simulation completed. Results saved to {output_file}")
+    return missing_rules  # **返回 missing_rules**
+
 
 ### === 第二部分：检测 Race Condition === ###
 def read_cv_logs(filename):
@@ -271,71 +208,80 @@ def read_cv_logs(filename):
     读取 `cv_logs.txt` 并解析成规则列表，保留执行顺序。
     """
     with open(filename, "r", encoding="utf-8") as f:
-        return [ast.literal_eval(line.strip()) for line in f]
+        data = f.read().strip()
 
-def detectRaceCondition(logs):
+    # **按空行分割不同轮次**
+    epochs = data.split("\n\n")
+    epochs_logs = [[ast.literal_eval(line) for line in epoch.split("\n") if line.strip()] for epoch in epochs]
+
+    return epochs_logs  # **返回每个轮次的日志列表**
+
+def detectRaceCondition_per_epoch(epochs_logs):
     """
-    复用 `detectRaceCondition` 逻辑，检测 `cv_logs.txt` 里面的 AC、UC、CP、CBK。
+    **对每个轮次(epoch)单独执行Race Condition检测**，然后累积所有轮次的检测结果，返回总计的 Race Condition 统计。
+
+    :param epochs_logs: 轮次划分的日志数据
+    :return: 累积所有轮次的 `conflict_dict` (包含 AC, UC, CBK, CP)
     """
-    conflict_dict = {"AC": [], "UC": [], "CBK": [], "CP": []}
-    logged_pairs = set()  # 记录已检测的 conflict pair
+    cumulative_conflict_dict = {"AC": [], "UC": [], "CBK": [], "CP": []}  # **存储所有轮次的累积 Race Condition 结果**
+    logged_pairs = set()  # 记录已检测的 conflict pair，防止重复添加
 
-    for i in range(len(logs)):
-        current_rule = logs[i]
-        current_actions = current_rule["Action"]
-        cur_rule_id = current_rule["id"]
+    for epoch_logs in epochs_logs:  # **逐个轮次(epoch)执行Race Condition检测**
+        for i in range(len(epoch_logs)):
+            current_rule = epoch_logs[i]
+            current_actions = current_rule["Action"]
+            cur_rule_id = current_rule["id"]
 
-        # Condition Block (CBK)
-        if current_rule['status'] == 'skipped' and current_rule.get('Condition'):
-            cond_dev, _ = current_rule['Condition'][0], current_rule['Condition'][1]
-            for j in range(i - 1, -1, -1):
-                former_rule = logs[j]
-                frm_rule_id = former_rule["id"]
-                for former_act in former_rule["Action"]:
-                    if former_act[0] == cond_dev:
-                        pair_cbk = (frm_rule_id, cur_rule_id)
-                        if frm_rule_id>cur_rule_id and pair_cbk not in logged_pairs:
-                            logged_pairs.add(pair_cbk)
-                            conflict_dict["CBK"].append(pair_cbk)
-                        break
-                else:
-                    continue
-                break
-
-        # 其他 Race Condition 只在 `run` 规则里检测
-        if current_rule['status'] == 'run':
-            # Action Conflict / Unexpected Conflict
-            for j in range(i - 1, -1, -1):
-                former_rule = logs[j]
-                frm_rule_id = former_rule["id"]
-
-                for latter_act in current_actions:
-                    for former_act in former_rule["Action"]:
-                        if latter_act[0] == former_act[0] and latter_act[1] != former_act[1]:
-                            pair = (frm_rule_id, cur_rule_id)
-                            if former_rule["ancestor"] == current_rule["ancestor"]:
-                                if frm_rule_id>cur_rule_id and pair not in logged_pairs:
-                                    logged_pairs.add(pair)
-                                    conflict_dict["AC"].append(pair)
-                            else:
-                                if frm_rule_id>cur_rule_id and pair not in logged_pairs:
-                                    logged_pairs.add(pair)
-                                    conflict_dict["UC"].append(pair)
-
-            # Condition Pass (CP)
-            if current_rule.get('Condition'):
-                cond_dev, cond_state = current_rule['Condition'][0], current_rule['Condition'][1]
-                for j in range(i - 1, -1, -1):
-                    former_rule = logs[j]
+            # **Condition Block (CBK)**
+            if current_rule['status'] == 'skipped' and current_rule.get('Condition'):
+                cond_dev, _ = current_rule['Condition'][0], current_rule['Condition'][1]
+                for j in range(i - 1, -1, -1):  # **只在当前轮次(epoch)内回溯**
+                    former_rule = epoch_logs[j]
                     frm_rule_id = former_rule["id"]
-                    if [cond_dev, cond_state] in former_rule["Action"]:
-                        pair_cp = (frm_rule_id, cur_rule_id)
-                        if frm_rule_id>cur_rule_id and pair_cp not in logged_pairs:
-                            logged_pairs.add(pair_cp)
-                            conflict_dict["CP"].append(pair_cp)
-                        break
+                    for former_act in former_rule["Action"]:
+                        if former_act[0] == cond_dev:
+                            pair_cbk = (frm_rule_id, cur_rule_id)
+                            if pair_cbk not in logged_pairs:
+                                logged_pairs.add(pair_cbk)
+                                cumulative_conflict_dict["CBK"].append(pair_cbk)
+                            break
+                    else:
+                        continue
+                    break
 
-    return conflict_dict
+            # **Action Conflict / Unexpected Conflict**
+            if current_rule['status'] == 'run':
+                for j in range(i - 1, -1, -1):  # **只在当前轮次(epoch)内查找**
+                    former_rule = epoch_logs[j]
+                    frm_rule_id = former_rule["id"]
+
+                    for latter_act in current_actions:
+                        for former_act in former_rule["Action"]:
+                            if latter_act[0] == former_act[0] and latter_act[1] != former_act[1]:
+                                pair = (frm_rule_id, cur_rule_id)
+                                if former_rule["ancestor"] == current_rule["ancestor"]:
+                                    if pair not in logged_pairs:
+                                        logged_pairs.add(pair)
+                                        cumulative_conflict_dict["AC"].append(pair)
+                                else:
+                                    if pair not in logged_pairs:
+                                        logged_pairs.add(pair)
+                                        cumulative_conflict_dict["UC"].append(pair)
+
+                # **Condition Pass (CP)**
+                if current_rule.get('Condition'):
+                    cond_dev, cond_state = current_rule['Condition'][0], current_rule['Condition'][1]
+                    for j in range(i - 1, -1, -1):
+                        former_rule = epoch_logs[j]
+                        frm_rule_id = former_rule["id"]
+                        if [cond_dev, cond_state] in former_rule["Action"]:
+                            pair_cp = (frm_rule_id, cur_rule_id)
+                            if pair_cp not in logged_pairs:
+                                logged_pairs.add(pair_cp)
+                                cumulative_conflict_dict["CP"].append(pair_cp)
+                            break
+
+    return cumulative_conflict_dict  # **返回所有轮次的 Race Condition 统计**
 
 ### === 第三部分：比对用户预期顺序 === ###
 def check_rcs(user_template_dict, conflict_dict):
@@ -354,69 +300,52 @@ def check_rcs(user_template_dict, conflict_dict):
 
     return check_result, mismatch_count
 
-def check_racecondition_with_score(conflict_dict, rule_scores):
-    """
-    计算 Race Condition，按照类别 (AC, UC, CBK, CP) 统计：
-    - 遍历 conflict_dict 中的所有 (a, b) 对。
-    - 如果 score(a) < score(b)，表示 b 本应先执行，但 a 先执行了，这是一个 Race Condition。
-    - 统计并返回更新后的 conflict_dict 和 总计不合理的冲突数量 mismatch_count。
-
-    :param conflict_dict: 包含 AC、UC、CBK、CP 类型的 conflict 对象
-    :param rule_scores: 规则 ID -> Score 的映射 {rule_id: score}
-    :return: (更新后的 conflict_dict, mismatch_count)
-    """
-    updated_conflict_dict = {"AC": [], "UC": [], "CBK": [], "CP": []}
-    mismatch_count = 0  # 统计 Race Condition 总数
-
-    for conflict_type, pairs in conflict_dict.items():
-        for (a, b) in pairs:
-            score_a = rule_scores.get(a, float("inf"))  # 获取 a 的 score，默认为无穷大
-            score_b = rule_scores.get(b, float("inf"))  # 获取 b 的 score，默认为无穷大
-
-            if score_a < score_b:  # 发现 a 应该在 b 之后执行，但 a 先执行了
-                updated_conflict_dict[conflict_type].append((a, b))
-                mismatch_count += 1  # 统计不合理的冲突数量
-
-    return updated_conflict_dict, mismatch_count
 
 
 def WithCV():
-
     clear_all_streams()
-
     create_streams()
 
-    # 生成 `cv_logs.txt`
-    generate_cv_logs()
+    # 生成 `cv_logs.txt` 并获取缺失规则
+    missing_rules = generate_cv_logs()
+
+    print("== 缺失规则 ==")
+    print(missing_rules)
 
     # 读取 `cv_logs.txt`
     cv_logs = read_cv_logs(r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\cv_logs.txt")
 
     # 从 `cv_logs.txt` 检测 Race Condition
-    conflict_dict = detectRaceCondition(cv_logs)
+    conflict_dict = detectRaceCondition_per_epoch(cv_logs)
 
-    print(conflict_dict)
+    # 获取用户定义的标准顺序
+    user_template, user_template_dict = get_user_scenario()
 
-    # # 获取用户定义的标准顺序
-    # user_template,user_template_dict = getUserTemplate()
-    #
-    # # 比较 `cv_conflict_dict` 和 `user_template`
-    # conflict_result, mismatch_count = check_rcs(user_template, conflict_dict)
+    print("== 标准顺序 ==")
+    print(build_dependency_map(user_template_dict))
 
-    # **获取所有规则的 Score**
-    rule_scores = {rule["id"]: rule["score"] for rule in cv_logs}  # 提取 score 映射
+    # 比较 `cv_conflict_dict` 和 `user_template`
+    conflict_result, mismatch_count = check_rcs(user_template, conflict_dict)
 
-    # **使用 score 计算 Race Condition，并分类统计**
-    conflict_result, mismatch_count = check_racecondition_with_score(conflict_dict, rule_scores)
+    # **去除 conflict_result 中出现在 missing_rules 里的冲突**
+    filtered_conflict_result = {conflict_type: [] for conflict_type in conflict_result}
 
-    # 输出最终结果
-    print("=== Final Check Conflict Results ===")
-    print(f"Total Mismatched Conflicts: {mismatch_count}")
+    for conflict_type, conflicts in conflict_result.items():
+        for pair in conflicts:
+            if pair not in missing_rules and (pair[1], pair[0]) not in missing_rules:
+                filtered_conflict_result[conflict_type].append(pair)
+
+    # **计算新的 mismatch_count**
+    new_mismatch_count = sum(len(conflicts) for conflicts in filtered_conflict_result.values())
+
+    # **输出最终结果**
+    print("=== Final Check Conflict Results (Filtered) ===")
+    print(f"Total Mismatched Conflicts: {new_mismatch_count}")
     print("Detailed Mismatched Conflicts:")
-    for conflict_type, mismatches in conflict_result.items():
+    for conflict_type, mismatches in filtered_conflict_result.items():
         print(f"{conflict_type}: {mismatches}")
 
-    return conflict_result, mismatch_count
+    return filtered_conflict_result, new_mismatch_count
 
 if __name__ == "__main__":
     WithCV()
