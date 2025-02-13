@@ -1,3 +1,4 @@
+import copy
 import threading
 import time
 import random
@@ -51,7 +52,7 @@ def read_static_logs(filename):
     return logs_per_epoch
 
 
-def execute_rule(rule, output_list, lock, dependency_map, offset_dict, barrier, missing_rules):
+def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules):
     """
     执行单条规则：
     1. **获取设备锁，并发送 `start` 消息**。
@@ -68,6 +69,8 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict, barrier, 
 
     # **等待所有线程到达屏障**
     barrier.wait()
+
+    print(f"[{rule_name}] 线程启动，需要锁：{devices_to_lock}")
 
     #  **如果规则有 Condition，不为空，则给 Condition 设备也发送 start**
     if rule.get("Condition"):
@@ -100,7 +103,7 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict, barrier, 
                 stream_name = f"Stream_{device}"
 
                 def worker():
-                    result = consume_messages_from_offset(rule_name, rule_id, stream_name, wait_rules, offset_dict, missing_rules)
+                    result = consume_messages_from_offset(rule_name, rule_id, stream_name, wait_rules,offset_dict_cur,missing_rules)
                     results.append(result)  # 存储线程返回值
 
                 thread = threading.Thread(target=worker)
@@ -146,11 +149,11 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict, barrier, 
         print(f"规则 {rule_id} 执行完成，已释放锁：{devices_to_lock}")
 
         with lock:
-            offset_dict.update(local_offset_dict)
+            offset_dict_global.update(local_offset_dict)
             print(f"规则 {rule_id} 更新 offset_dict: {local_offset_dict}")
 
 
-def process_epoch(epoch_logs, output_logs, offset_dict, missing_rules):
+def process_epoch(epoch_logs, output_logs, offset_dict_global, offset_dict_cur, missing_rules):
     """
     1. **创建 Barrier，确保所有规则线程同步启动**。
     2. **为每个规则创建线程，所有线程到达 Barrier 后同时开始**。
@@ -170,7 +173,7 @@ def process_epoch(epoch_logs, output_logs, offset_dict, missing_rules):
     dependency_map = build_dependency_map(s2)
 
     for log in epoch_logs:
-        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock, dependency_map, offset_dict, barrier, missing_rules))
+        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules))
         threads.append(thread)
         thread.start()
 
@@ -186,11 +189,13 @@ def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Even
     """
     epochs_logs = read_static_logs(input_file)
     final_logs = []
-    offset_dict = {}  # 维护每个 Stream 的消费起始偏移量
+    offset_dict_global = {}  # 维护每个 Stream 的消费起始偏移量
+    offset_dict_cur = {}  # 维护每个 Stream 的消费起始偏移量，但是每一轮次才更新使用一次
     missing_rules = []  # **收集所有轮次的 missing_rules**
 
     for epoch_logs in epochs_logs:
-        process_epoch(epoch_logs, final_logs,offset_dict,missing_rules)
+        offset_dict_cur = copy.copy(offset_dict_global)
+        process_epoch(epoch_logs, final_logs,offset_dict_global,offset_dict_cur, missing_rules)
         final_logs.append("")  # **插入空行，区分不同 epoch**
 
     # 记录最终执行顺序

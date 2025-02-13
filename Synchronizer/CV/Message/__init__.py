@@ -83,7 +83,7 @@ def send_message(rule_name, stream, key, id):
 
 
 # 这个函数之所以不完善，还能检测出来，是因为缺乏标记，应该标记出target_id_set中应该来但是最终一直都没来的规则，返回到主线程中，来说明：当前规则不是不等待，而是那些规则已经超过了时间窗口。
-def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_set, offset_dict=None, missing_rules=None):
+def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_set, offset_dict_cur=None, missing_rules=None):
     """
     通过 Redis Stream 监听规则的 `start` 和 `end` 消息，并标记 `target_id_set` 中 **应该来但没来的规则**。
 
@@ -91,7 +91,7 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
     :param current_rule_id: 当前规则 ID（整数）
     :param stream: 监听的 Redis Stream 名称
     :param target_id_set: 需要等待的规则 ID 集合（只监听这些规则的 start/end 消息）
-    :param offset_dict: {stream_name: offset}，决定不同 Stream 的消费起点
+    :param offset_dict_cur: {stream_name: offset}，决定不同 Stream 的消费起点，由外部传入，只会按照轮次使用
     :param missing_rules: 用于收集未出现的规则，格式 [(当前规则ID, 缺失规则ID)]
     :return: True (正常退出) / False (异常退出)
     """
@@ -105,8 +105,8 @@ def consume_messages_from_offset(rule_name, current_rule_id, stream, target_id_s
     missing_rules = missing_rules if missing_rules is not None else []
 
     # **如果 offset_dict 为空或没有该 stream，默认为 '0-0'**
-    # stream_offset = offset_dict.get(stream, '0-0') if offset_dict else '0-0'
-    stream_offset = '0-0'
+    stream_offset = offset_dict_cur.get(stream, '0-0') if offset_dict_cur else '0-0'
+    # stream_offset = '0-0'
     #  **尝试创建消费者组，最多重试 3 次**
     for attempt in range(3):
         try:
