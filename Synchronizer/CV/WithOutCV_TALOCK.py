@@ -326,7 +326,7 @@ def check_racecondition_with_score(conflict_dict, rule_scores):
 
 def WithOutCV_TALOCK():
     # 生成 `nocv_lock_logs.txt`
-    # generate_nocv_logs()
+    generate_nocv_logs()
 
     # 读取 `nocv_lock_logs.txt`
     nocv_logs = read_nocv_logs(r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\nocv_lock_logs.txt")
@@ -334,17 +334,14 @@ def WithOutCV_TALOCK():
     # 从 `nocv_logs.txt` 检测真实 Race Condition
     conflict_dict = detectRaceCondition_per_epoch(nocv_logs)
 
-    print(len(conflict_dict["AC"]) + len(conflict_dict["UC"]) + len(conflict_dict["CBK"]) + len(conflict_dict["CP"]))
-    print()
-    print(conflict_dict)
-    print()
+    conflict_result = conflict_dict
+    mismatch_count = len(conflict_dict["AC"]) + len(conflict_dict["UC"]) + len(conflict_dict["CBK"]) + len(conflict_dict["CP"])
 
-    # **获取所有规则的 Score**
-    rule_scores = {rule["id"]: rule["score"] for epoch in nocv_logs for rule in epoch}
-
-    # **使用 score 计算 Race Condition，并分类统计**
-    # 从真实CRI检测不合用户预期CRI
-    conflict_result, mismatch_count = check_racecondition_with_score(conflict_dict, rule_scores)
+    # # **获取所有规则的 Score**
+    # rule_scores = {rule["id"]: rule["score"] for epoch in nocv_logs for rule in epoch}
+    # # **使用 score 计算 Race Condition，并分类统计**
+    # # 从真实CRI检测不合用户预期CRI
+    # conflict_result, mismatch_count = check_racecondition_with_score(conflict_dict, rule_scores)
 
     # **分类打印输出**
     print("=== Final Check Conflict Results ===")

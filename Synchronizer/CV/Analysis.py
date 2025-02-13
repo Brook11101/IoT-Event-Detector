@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 # **实验数据存储的根目录**
 BASE_DIR = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data"
-NUM_OF_OPERATIONS = [1, 2, 3, 4]  # 实验操作次数
+NUM_OF_OPERATIONS = [1, 2, 3, 4, 5]  # 实验操作次数
 
 # **存储计算结果**
 cri_withcv = []
