@@ -6,15 +6,17 @@ import ast
 from Synchronizer.CV.UserScenario import get_user_scenario  # 用户定义的模板，用于比对预期顺序
 from Synchronizer.CV.UserScenario import build_dependency_map  # 用户定义的模板，用于比对预期顺序
 from RuleSet import deviceStatus
-from Message import send_message
+from Message import send_message, send_message_atomic
 from Message import create_streams
 from Message import clear_all_streams
 from Message import consume_messages_from_offset
+
 
 class DeviceLock:
     """
     设备锁管理类：管理单个设备的锁，支持持续尝试获取锁。
     """
+
     def __init__(self):
         self.lock = threading.Lock()  # 每个设备对应一个锁
 
@@ -33,9 +35,11 @@ class DeviceLock:
         """
         self.lock.release()
 
+
 # === 创建全局设备锁字典 ===
 deviceStatus = deviceStatus
 device_locks = {device: DeviceLock() for device in deviceStatus}  # 设备锁池
+
 
 ### === 第一部分：读取和生成 `cv_logs.txt` === ###
 def read_static_logs(filename):
@@ -55,7 +59,7 @@ def read_static_logs(filename):
 def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules):
     """
     执行单条规则：
-    1. **获取设备锁，并发送 `start` 消息**。
+    1. **获取设备锁/使用LLSC，发送 `start` 消息**。
     2. **释放锁，监听 `end` 消息，等待所有依赖的规则完成**。
     3. **依赖满足后，重新获取设备锁，执行任务**。
     4. **执行完成后，发送 `end` 消息，并释放设备锁**。
@@ -67,31 +71,28 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
     devices_to_lock = sorted(rule["Lock"])  # **按照字典序获取所有锁**
     local_offset_dict = {}  # 本地偏移量记录，用于更新全局 offset_dict
 
+    # 2 收集所有要发送的 stream
+    stream_list = []
+
+    # 如果规则有 Condition，不为空，则给 Condition 设备也发送 "start"
+    if rule.get("Condition"):
+        condition_device = rule["Condition"][0]  # 获取 Condition 设备
+        stream_list.append(f"Stream_{condition_device}")
+
+    # 处理规则涉及的设备
+    for device in devices_to_lock:
+        stream_list.append(f"Stream_{device}")
+
     # **等待所有线程到达屏障**
     barrier.wait()
 
-    print(f"[{rule_name}] 线程启动，需要锁：{devices_to_lock}")
+    print(f"[{rule_name}] 线程启动，需要设备锁：{devices_to_lock}")
 
-    #  **如果规则有 Condition，不为空，则给 Condition 设备也发送 start**
-    if rule.get("Condition"):
-        condition_device = rule["Condition"][0]  # 获取 Condition 设备
-        stream_name = f"Stream_{condition_device}"
-        msg_id = send_message(rule_name, stream_name, "start", rule_id)
-        if msg_id:
-            local_offset_dict[stream_name] = msg_id  # 记录偏移量
-
-    for device in devices_to_lock:
-        device_locks[device].acquire()
-
-
-    for device in devices_to_lock:
-        stream_name = f"Stream_{device}"
-        msg_id = send_message(rule_name, stream_name, "start", rule_id)
-        if msg_id:
-            local_offset_dict[stream_name] = msg_id  # 记录偏移量
-        device_locks[device].release()
-
-
+    # 3. 调用 `send_message_atomic()` 进行**原子性**发送
+    if stream_list:
+        offset_dict = send_message_atomic(rule_name, stream_list, "start", rule_id)
+        if offset_dict:
+            local_offset_dict.update(offset_dict)  # 直接合并返回的偏移量字典
 
     # 4️ **监听依赖的 `end` 消息**
     waiting_threads = []
@@ -103,7 +104,8 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
                 stream_name = f"Stream_{device}"
 
                 def worker():
-                    result = consume_messages_from_offset(rule_name, rule_id, stream_name, wait_rules,offset_dict_cur,missing_rules)
+                    result = consume_messages_from_offset(rule_name, rule_id, stream_name, wait_rules, offset_dict_cur,
+                                                          missing_rules)
                     results.append(result)  # 存储线程返回值
 
                 thread = threading.Thread(target=worker)
@@ -121,10 +123,6 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
             print(f"规则 {rule_id} 依赖等待失败,停止执行")
             return
 
-    # 5️ **重新获取设备锁**
-    for device in devices_to_lock:
-        device_locks[device].acquire()
-
     try:
         # 6️ **执行任务**
         print(f"规则 {rule_id} 已获取所有锁，开始执行...")
@@ -132,20 +130,12 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
         output_list.append(rule)  # **记录执行顺序**
 
         # 7️ **发送 `end` 消息**
-        for device in devices_to_lock:
-            stream_name = f"Stream_{device}"
-            send_message(rule_name, stream_name, "end", rule_id)
-
-        # **如果规则有 Condition，不为空，则给 Condition 设备也发送 end**
-        if rule.get("Condition"):
-            condition_device = rule["Condition"][0]
-            stream_name = f"Stream_{condition_device}"
-            send_message(rule_name, stream_name, "end", rule_id)
+        if stream_list:
+            for stream in stream_list:
+                send_message(rule_name, stream, "end", rule_id)
 
     finally:
         # 8️ **释放设备锁**
-        for device in devices_to_lock:
-            device_locks[device].release()
         print(f"规则 {rule_id} 执行完成，已释放锁：{devices_to_lock}")
 
         with lock:
@@ -173,14 +163,17 @@ def process_epoch(epoch_logs, output_logs, offset_dict_global, offset_dict_cur, 
     dependency_map = build_dependency_map(s2)
 
     for log in epoch_logs:
-        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules))
+        thread = threading.Thread(target=execute_rule, args=(
+            log, output_logs, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules))
         threads.append(thread)
         thread.start()
 
     for thread in threads:
         thread.join()  # 确保当前轮次所有规则执行完，再执行下一个轮次
 
-def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt", output_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\cv_logs.txt"):
+
+def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt",
+                     output_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\cv_logs.txt"):
     """
     1. **读取 `static_logs.txt`**，获取规则数据。
     2. **对每个 `epoch_logs` 轮次，使用 `Barrier` 机制执行所有规则**。
@@ -195,7 +188,7 @@ def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Even
 
     for epoch_logs in epochs_logs:
         offset_dict_cur = copy.copy(offset_dict_global)
-        process_epoch(epoch_logs, final_logs,offset_dict_global,offset_dict_cur, missing_rules)
+        process_epoch(epoch_logs, final_logs, offset_dict_global, offset_dict_cur, missing_rules)
         final_logs.append("")  # **插入空行，区分不同 epoch**
 
     # 记录最终执行顺序
@@ -220,6 +213,7 @@ def read_cv_logs(filename):
     epochs_logs = [[ast.literal_eval(line) for line in epoch.split("\n") if line.strip()] for epoch in epochs]
 
     return epochs_logs  # **返回每个轮次的日志列表**
+
 
 def detectRaceCondition_per_epoch(epochs_logs):
     """
@@ -288,6 +282,7 @@ def detectRaceCondition_per_epoch(epochs_logs):
 
     return cumulative_conflict_dict  # **返回所有轮次的 Race Condition 统计**
 
+
 ### === 第三部分：比对用户预期顺序 === ###
 def check_rcs(user_template_dict, conflict_dict):
     check_result = {"AC": [], "UC": [], "CBK": [], "CP": []}
@@ -304,7 +299,6 @@ def check_rcs(user_template_dict, conflict_dict):
                 mismatch_count += 1
 
     return check_result, mismatch_count
-
 
 
 def WithCV():
@@ -332,6 +326,8 @@ def WithCV():
     # 比较 `cv_conflict_dict` 和 `user_template`
     conflict_result, mismatch_count = check_rcs(user_template, conflict_dict)
 
+    print(f"Before double check sequence conflict number: {mismatch_count}")
+
     # **去除 conflict_result 中出现在 missing_rules 里的冲突**
     filtered_conflict_result = {conflict_type: [] for conflict_type in conflict_result}
 
@@ -351,6 +347,7 @@ def WithCV():
         print(f"{conflict_type}: {mismatches}")
 
     return filtered_conflict_result, new_mismatch_count
+
 
 if __name__ == "__main__":
     WithCV()

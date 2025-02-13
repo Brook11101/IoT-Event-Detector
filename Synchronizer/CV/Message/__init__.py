@@ -1,6 +1,7 @@
 import time
 import redis
 from Synchronizer.CV import RuleSet
+import json
 
 # Redis 连接配置（请根据实际情况修改）
 redis_host = '114.55.74.144'
@@ -80,6 +81,69 @@ def send_message(rule_name, stream, key, id):
 
     print(f"[{rule_name}] 发送消息失败，已达最大重试次数")
     return None  # 发送失败时返回 None
+
+# 专门用于start类型消息的发送,确保一次性完整的插入规则相关设备队列上的start消息
+def send_message_atomic(rule_name, stream_list, key, id):
+    """
+    以**原子性**方式向多个 Redis Streams 发送消息，支持失败重试。
+    仅当 key="start" 时，才返回 {stream_name: msg_id}，否则返回 None。
+
+    :param rule_name: 规则名称（用于日志）
+    :param stream_list: 目标 Stream 列表
+    :param key: 消息类型，可以是 "start" 或 "end"
+    :param id: 规则的唯一 ID
+    :return: 如果 key="start"，返回 {stream_name: msg_id}，否则返回 None
+    """
+    lua_script = """
+    local stream_list = KEYS
+    local key = ARGV[1]
+    local id = ARGV[2]
+    local max_retries = 3  -- 最大重试次数
+    local offset_dict = {}
+
+    for _, stream in ipairs(stream_list) do
+        local attempt = 0
+        local msg_id = nil
+
+        while attempt < max_retries do
+            msg_id = redis.call("XADD", stream, "*", "key", key, "id", id)
+            if msg_id then
+                break  -- 发送成功，跳出循环
+            end
+            attempt = attempt + 1
+        end
+
+        if not msg_id then
+            return redis.error_reply("添加消息失败（已尝试 " .. max_retries .. " 次）: " .. stream)
+        end
+
+        if key == "start" then
+            offset_dict[stream] = msg_id  -- 仅记录 start 消息的偏移量
+        end
+    end
+
+    if key == "start" then
+        return cjson.encode(offset_dict)  -- 仅在 key="start" 时返回 JSON
+    else
+        return "{}"  -- key="end" 时返回空 JSON
+    end
+    """
+
+    try:
+        send_to_streams = redis_client.register_script(lua_script)
+        result_json = send_to_streams(keys=stream_list, args=[key, id])
+
+        if key == "start":
+            offset_dict = json.loads(result_json)  # 解析 Lua 返回的 JSON 数据
+            print(f"[{rule_name}] Start 消息成功发送到多个 Streams: {offset_dict}, Rule-ID: {id}")
+            return offset_dict
+        else:
+            print(f"[{rule_name}] End 消息成功发送到多个 Streams: {stream_list}, Rule-ID: {id}")
+            return None  # end 消息不返回偏移量
+    except Exception as e:
+        print(f"[{rule_name}] 发送消息失败: {e}")
+        return None
+
 
 
 # 这个函数之所以不完善，还能检测出来，是因为缺乏标记，应该标记出target_id_set中应该来但是最终一直都没来的规则，返回到主线程中，来说明：当前规则不是不等待，而是那些规则已经超过了时间窗口。
