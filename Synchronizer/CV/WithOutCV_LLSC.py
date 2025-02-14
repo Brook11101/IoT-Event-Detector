@@ -23,56 +23,72 @@ def read_static_logs(filename):
     return logs_per_epoch
 
 
-def execute_rule(rule, output_list, lock, barrier):
+def execute_rule(rule, output_list, lock, barrier, llsc_list):
     """
     执行单条规则：
     1. **先等待 `barrier`，保证所有线程同步启动**。
-    2. **LLSC**。
-    3. **成功获取所有锁后，执行任务**。
-    4. **任务完成后，释放所有锁**。
+    2. **LLSC 机制，执行日志插入**。
+    3. **若执行成功，记录到 `output_list`，若失败，则记录到 `llsc_list`**。
     """
 
     # **等待所有线程到达屏障**
     barrier.wait()
 
     rule_trigger_time = time()
-
     sleep(random.uniform(1, 2))  # **模拟触发到执行的延迟**
 
     try:
         print(f"规则 {rule['id']} 直接开始执行...")
-        insert_log(rule["RuleId"], rule["id"], rule_trigger_time)
-        output_list.append(rule)  # **线程安全地记录执行顺序**
+
+        # **使用 LLSC 机制，插入日志**
+        has_executed = insert_log(rule["RuleId"], rule["id"], rule_trigger_time)
+
+        if has_executed:
+            output_list.append(rule)  # **线程安全地记录执行顺序**
+        else:
+            llsc_list.append(rule["id"])  # **如果 LLSC 失败，加入 llsc_list**
+
     finally:
         print(f"规则 {rule['id']} 执行完成")
 
 
-# **并发执行当前轮次的所有规则**
-def process_epoch(epoch_logs, output_logs):
+def process_epoch(epoch_logs, output_logs, llsc_list):
     """
-    1. **创建 `Barrier`，确保所有规则线程同步启动**。
-    2. **为每个规则创建线程，所有线程到达 `Barrier` 后同时开始**。
-    3. **等待所有线程执行完毕**。
+    1. **筛选 epoch_logs，移除 `ancestor` 在 `llsc_list` 里的规则**。
+    2. **创建 Barrier，确保所有规则线程同步启动**。
+    3. **为每个规则创建线程，所有线程到达 Barrier 后同时开始**。
+    4. **等待所有线程执行完毕**。
     """
-    num_rules = len(epoch_logs)
-    if num_rules == 0:
+    if not epoch_logs:
         return
 
-    # **创建 Barrier**
-    barrier = threading.Barrier(num_rules)
+    filtered_logs = []
+
+    for log in epoch_logs:
+        ancestor_id = log["ancestor"]
+
+        if ancestor_id in llsc_list:
+            llsc_list.append(log["id"])  # **如果 `ancestor` 失败，当前规则也应该加入 `llsc_list`**
+            print(f"规则 {log['id']} 被跳过，因为 `ancestor` 规则 {ancestor_id} 没有执行成功")
+        else:
+            filtered_logs.append(log)
+
+    if not filtered_logs:
+        return  # **如果没有可执行的规则，直接返回**
+
+    # **更新 Barrier 只控制真实执行的规则**
+    barrier = threading.Barrier(len(filtered_logs))
 
     threads = []
     lock = threading.Lock()
 
-    # **创建线程**
-    for log in epoch_logs:
-        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock, barrier))
+    for log in filtered_logs:
+        thread = threading.Thread(target=execute_rule, args=(log, output_logs, lock, barrier, llsc_list))
         threads.append(thread)
         thread.start()
 
-    # **等待所有线程执行完毕**
     for thread in threads:
-        thread.join()
+        thread.join()  # **确保当前轮次所有规则执行完，再执行下一个轮次**
 
 
 def generate_nocv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt",
@@ -81,21 +97,22 @@ def generate_nocv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Ev
     1. **读取 `static_logs.txt`**，获取规则数据。
     2. **对每个 `epoch_logs` 轮次，使用 `Barrier` 机制执行所有规则**。
     3. **将最终执行顺序存入 `nocv_llsc_logs.txt`**，不同 `epoch` 之间插入空行区分。
+    4. **返回 `llsc_list` 记录 LLSC 执行失败的规则**。
     """
-    epochs_logs = read_static_logs(input_file)  # 读取日志数据
-    final_logs = []  # 存储执行顺序
+    epochs_logs = read_static_logs(input_file)
+    final_logs = []
+    llsc_list = []  # **记录因 LLSC 失败未执行的规则**
 
     for epoch_logs in epochs_logs:
-        process_epoch(epoch_logs, final_logs)
+        process_epoch(epoch_logs, final_logs, llsc_list)
         final_logs.append("")  # **插入空行，区分不同 epoch**
 
-    # **写入 `nocv_llsc_logs.txt`**
     with open(output_file, "w", encoding="utf-8") as f:
         for log in final_logs:
             f.write(str(log) + "\n")
 
     print(f"Simulation completed. Results saved to {output_file}")
-
+    return llsc_list  # **返回 LLSC 执行失败的规则**
 
 ### === 第二部分：检测 Race Condition === ###
 
@@ -289,7 +306,10 @@ def WithOutCV_LLSC():
     clear_table()
 
     # 生成 `nocv_llsc_logs.txt`
-    generate_nocv_logs()
+    llsc_list = generate_nocv_logs()
+
+    print("== 未执行规则 ==")
+    print(llsc_list)
 
     # 读取 `nocv_llsc_logs.txt`
     nocv_logs = read_nocv_logs(r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\nocv_llsc_logs.txt")

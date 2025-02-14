@@ -1,6 +1,6 @@
 import copy
 import threading
-from time import time,sleep
+from time import time, sleep
 import random
 import ast
 from Synchronizer.CV.LLSC import clear_table, insert_log
@@ -57,30 +57,31 @@ def read_static_logs(filename):
     return logs_per_epoch
 
 
-def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules):
+def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules,
+                 llsc_list):
     """
     执行单条规则：
-    1. **获取设备锁/使用LLSC，发送 `start` 消息**。
-    2. **释放锁，监听 `end` 消息，等待所有依赖的规则完成**。
-    3. **依赖满足后，重新获取设备锁，执行任务**。
-    4. **执行完成后，发送 `end` 消息，并释放设备锁**。
+    1. **使用 LLSC，发送 `start` 消息**。
+    2. **监听 `end` 消息，等待所有依赖的规则完成**。
+    3. **依赖满足后，执行任务**。
+    4. **执行完成后，发送 `end` 消息**。
     """
 
     rule_id = rule["id"]
     rule_name = f"rule-{rule_id}"
-    # 1️ **获取设备锁**
+
     devices_to_lock = sorted(rule["Lock"])  # **按照字典序获取所有锁**
     local_offset_dict = {}  # 本地偏移量记录，用于更新全局 offset_dict
 
     # 2 收集所有要发送的 stream
     stream_list = []
 
-    # 如果规则有 Condition，不为空，则给 Condition 设备也发送 "start"
+    # **如果规则有 Condition，不为空，则给 Condition 设备也发送 "start"**
     if rule.get("Condition"):
         condition_device = rule["Condition"][0]  # 获取 Condition 设备
         stream_list.append(f"Stream_{condition_device}")
 
-    # 处理规则涉及的设备
+    # **处理规则涉及的设备**
     for device in devices_to_lock:
         stream_list.append(f"Stream_{device}")
 
@@ -88,18 +89,16 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
     barrier.wait()
 
     rule_trigger_time = time()
-
     sleep(random.uniform(1, 2))  # **模拟触发到执行的延迟**
-
     print(f"[{rule_name}] 收到Action，开始执行，需要设备：{devices_to_lock}")
 
-    # 3. 调用 `send_message_atomic()` 进行**原子性**发送
+    # **3. 调用 `send_message_atomic()` 进行原子性发送**
     if stream_list:
         offset_dict = send_message_atomic(rule_name, stream_list, "start", rule_id)
         if offset_dict:
             local_offset_dict.update(offset_dict)  # 直接合并返回的偏移量字典
 
-    # 4️ **监听依赖的 `end` 消息**
+    # **4️ 监听依赖的 `end` 消息**
     waiting_threads = []
     results = []  # 存储所有线程的返回值
 
@@ -122,31 +121,29 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
             thread.join()
 
         # **检查所有监听结果**
-        if all(results):
-            print(f"规则 {rule_id} 依赖等待成功")
-        else:
-            print(f"规则 {rule_id} 依赖等待失败,停止执行")
+        if not all(results):
+            print(f"规则 {rule_id} 依赖等待失败，停止执行")
             return
 
     try:
-        # 6️ **执行任务**
-
+        # **6️ 执行任务**
         print(f"规则 {rule_id} 已获取所有设备锁，开始执行...")
 
-        # 使用LLSC机制，插入记录
-        cur_time = time
+        # **使用 LLSC 机制，插入记录**
+        has_executed = insert_log(rule["RuleId"], rule_id, rule_trigger_time)
 
-        insert_log(rule["RuleId"], rule_id, rule_trigger_time)
+        if has_executed:
+            output_list.append(rule)  # **记录执行顺序**
+        else:
+            llsc_list.append(rule_id)  # **如果 LLSC 执行失败，记录规则ID**
 
-        output_list.append(rule)  # **记录执行顺序**
-
-        # 7️ **发送 `end` 消息**
+        # **7️ 发送 `end` 消息**
         if stream_list:
             for stream in stream_list:
                 send_message(rule_name, stream, "end", rule_id)
 
     finally:
-        # 8️ **释放设备锁**
+        # **8️ 释放设备锁**
         print(f"规则 {rule_id} 执行完成，已释放锁：{devices_to_lock}")
 
         with lock:
@@ -154,18 +151,30 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
             print(f"规则 {rule_id} 更新 offset_dict: {local_offset_dict}")
 
 
-def process_epoch(epoch_logs, output_logs, offset_dict_global, offset_dict_cur, missing_rules):
+def process_epoch(epoch_logs, output_logs, offset_dict_global, offset_dict_cur, missing_rules, llsc_list):
     """
     1. **创建 Barrier，确保所有规则线程同步启动**。
-    2. **为每个规则创建线程，所有线程到达 Barrier 后同时开始**。
-    3. **等待所有线程执行完毕**。
+    2. **筛选 epoch_logs，移除 `ancestor` 在 `llsc_list` 里的规则**。
+    3. **为每个规则创建线程，所有线程到达 Barrier 后同时开始**。
+    4. **等待所有线程执行完毕**。
     """
     num_rules = len(epoch_logs)
     if num_rules == 0:
         return
 
-    # **创建 Barrier**
-    barrier = threading.Barrier(num_rules)
+    filtered_logs = []
+
+    for log in epoch_logs:
+        ancestor_id = log["ancestor"]
+
+        if ancestor_id in llsc_list:
+            llsc_list.append(log["id"])  # **如果 `ancestor` 失败，当前规则也应该加入 `llsc_list`**
+            print(f"规则 {log['id']} 被跳过，因为其 `ancestor` 规则 {ancestor_id} 没有执行成功")
+        else:
+            filtered_logs.append(log)
+
+    # **更新 Barrier 只控制真实执行的规则**
+    barrier = threading.Barrier(len(filtered_logs))
 
     threads = []
     lock = threading.Lock()
@@ -173,14 +182,14 @@ def process_epoch(epoch_logs, output_logs, offset_dict_global, offset_dict_cur, 
     s1, s2 = get_user_scenario()
     dependency_map = build_dependency_map(s2)
 
-    for log in epoch_logs:
+    for log in filtered_logs:
         thread = threading.Thread(target=execute_rule, args=(
-            log, output_logs, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules))
+        log, output_logs, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules, llsc_list))
         threads.append(thread)
         thread.start()
 
     for thread in threads:
-        thread.join()  # 确保当前轮次所有规则执行完，再执行下一个轮次
+        thread.join()  # **确保当前轮次所有规则执行完，再执行下一个轮次**
 
 
 def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt",
@@ -189,26 +198,26 @@ def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Even
     1. **读取 `static_logs.txt`**，获取规则数据。
     2. **对每个 `epoch_logs` 轮次，使用 `Barrier` 机制执行所有规则**。
     3. **将最终执行顺序存入 `cv_logs.txt`**，不同 `epoch` 之间插入空行区分。
-    4. **返回 missing_rules，记录哪些规则本应该出现但没有出现。**
+    4. **返回 `missing_rules` 和 `llsc_list` 记录的执行失败规则**。
     """
     epochs_logs = read_static_logs(input_file)
     final_logs = []
-    offset_dict_global = {}  # 维护每个 Stream 的消费起始偏移量
-    offset_dict_cur = {}  # 维护每个 Stream 的消费起始偏移量，但是每一轮次才更新使用一次
-    missing_rules = []  # **收集所有轮次的 missing_rules**
+    offset_dict_global = {}  # 维护全局偏移量
+    offset_dict_cur = {}  # 每轮次更新
+    missing_rules = []  # 记录缺失规则
+    llsc_list = []  # **记录因为 LLSC 没有执行成功的规则**
 
     for epoch_logs in epochs_logs:
         offset_dict_cur = copy.copy(offset_dict_global)
-        process_epoch(epoch_logs, final_logs, offset_dict_global, offset_dict_cur, missing_rules)
+        process_epoch(epoch_logs, final_logs, offset_dict_global, offset_dict_cur, missing_rules, llsc_list)
         final_logs.append("")  # **插入空行，区分不同 epoch**
 
-    # 记录最终执行顺序
     with open(output_file, "w", encoding="utf-8") as f:
         for log in final_logs:
             f.write(str(log) + "\n")
 
     print(f"Simulation completed. Results saved to {output_file}")
-    return missing_rules  # **返回 missing_rules**
+    return missing_rules, llsc_list  # **返回 missing_rules 和 llsc_list**
 
 
 ### === 第二部分：检测 Race Condition === ###
@@ -313,17 +322,19 @@ def check_rcs(user_template_dict, conflict_dict):
 
 
 def WithCV():
-
     clear_table()
 
     clear_all_streams()
     create_streams()
 
     # 生成 `cv_logs.txt` 并获取缺失规则
-    missing_rules = generate_cv_logs()
+    missing_rules, llsc_list = generate_cv_logs()
 
     print("== 缺失规则 ==")
     print(missing_rules)
+
+    print("== 未执行规则 ==")
+    print(llsc_list)
 
     # 读取 `cv_logs.txt`
     cv_logs = read_cv_logs(r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\cv_logs.txt")
