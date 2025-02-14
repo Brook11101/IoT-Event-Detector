@@ -2,7 +2,6 @@ import json
 import random
 import threading
 from time import sleep, time
-
 import mysql
 import RuleSet
 from DBMyISAM import insert_log, clear_table
@@ -39,10 +38,7 @@ deviceStatus = {
     "Notification": 0
 }
 
-# -----------------------
-# 全局数组，用于记录每个线程的执行时间 + 线程安全锁
 thread_execution_times = []
-
 
 def execute_rule(rule):
     """
@@ -51,22 +47,15 @@ def execute_rule(rule):
 
     # 获取规则的各项数据
     ruleid = rule["RuleId"]
-    trigger_device = rule["Trigger"]
-    condition_device = rule["Condition"]
-    action_device = rule["Action"]
-    description = rule["description"]
-    lock_device = rule["Lock"]
 
-    # 当前请求的执行开始时间: 仅用于插入日志（原逻辑）
-    start_timestamp = time()
     # 记录线程开始时间
     start_time = time()
 
     # 模拟触发到执行的延迟
     sleep(random.uniform(1, 2))
+
     # 将数据插入数据库
-    exec_time = insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, start_timestamp,
-               start_time)
+    exec_time = insert_log(ruleid, start_time)
 
     thread_execution_times.append(exec_time)
 
@@ -87,57 +76,6 @@ def execute_all_rules_concurrently(rules):
     # 等待所有线程执行完毕
     for thread in threads:
         thread.join()
-
-
-def get_device_status():
-    """
-    从数据库读取日志记录，计算最终设备状态。
-    """
-    device_status_result = deviceStatus.copy()
-
-    try:
-        # 连接到数据库
-        connection = mysql.connector.connect(
-            host="114.55.74.144",
-            user="root",
-            password="Root123456.",
-            database="rule_db"
-        )
-        cursor = connection.cursor(dictionary=True)
-
-        # 按时间戳升序读取日志记录
-        cursor.execute("""
-            SELECT * FROM rule_execution_log_myisam
-            WHERE status = TRUE
-            ORDER BY logid ASC
-        """)
-        logs = cursor.fetchall()
-
-        # 更新设备状态
-        for log in logs:
-            # 更新 trigger_device 的状态
-            trigger_device = log["trigger_device"]
-            if trigger_device:
-                trigger_device_data = json.loads(trigger_device)
-                if trigger_device_data[0] in device_status_result:
-                    device_status_result[trigger_device_data[0]] = trigger_device_data[1]
-
-            # 更新 action_device 的状态
-            action_device = log["action_device"]
-            if action_device:
-                action_device_data = json.loads(action_device)
-                for device, state in action_device_data:
-                    if device in device_status_result:
-                        device_status_result[device] = state
-
-    except mysql.connector.Error as e:
-        print(f"Database error: {e}")
-
-    finally:
-        if connection.is_connected():
-            connection.close()
-
-    return device_status_result
 
 
 def get_execution_order():

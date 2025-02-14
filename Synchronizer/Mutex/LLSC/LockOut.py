@@ -1,7 +1,6 @@
 import random
 import threading
 from time import sleep, time
-
 import RuleSet
 import StatusMapping
 
@@ -39,17 +38,17 @@ def execute_rule_without_lock(rule):
         print(f"Executing rule {ruleid}...")
         sleep(random.uniform(1, 2))
 
-        # 更新全局状态字典（仅用 device_status_lock 来保护状态写操作）
-        with device_status_lock:
-            if trigger_device[0] in device_status:
-                device_status[trigger_device[0]] = trigger_device[1]
+        # # 更新全局状态字典（仅用 device_status_lock 来保护状态写操作）
+        # with device_status_lock:
+        #     if trigger_device[0] in device_status:
+        #         device_status[trigger_device[0]] = trigger_device[1]
+        #
+        #     for action in action_devices:
+        #         if action[0] in device_status:
+        #             device_status[action[0]] = action[1]
 
-            for action in action_devices:
-                if action[0] in device_status:
-                    device_status[action[0]] = action[1]
-
-            # 记录规则执行顺序
-            execution_order.append(ruleid)
+        # 记录规则执行顺序
+        execution_order.append(ruleid)
 
     finally:
         # 记录线程执行时间

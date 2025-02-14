@@ -73,7 +73,6 @@ def insert_log(ruleid, id, timestamp):
 
     try:
         # 检查冲突规则
-        current_timestamp = time()
         conflict_rule_ids = StatusMapping.rule_conflict_map.get(ruleid, set())
 
         if conflict_rule_ids:
@@ -99,7 +98,7 @@ def insert_log(ruleid, id, timestamp):
                 INSERT INTO rule_execution_cv_log_myisam (ruleid, id, timestamp, status)
                 VALUES (%s, %s, %s, %s)
             """, (
-                ruleid, id, current_timestamp, status
+                ruleid, id, time(), status
             ))
             return status
         else:
@@ -109,7 +108,7 @@ def insert_log(ruleid, id, timestamp):
                 INSERT INTO rule_execution_cv_log_myisam (ruleid, id, timestamp, status)
                 VALUES (%s, %s, %s, %s)
             """, (
-                ruleid, id, current_timestamp, True
+                ruleid, id, time(), True
             ))
             return True
 
