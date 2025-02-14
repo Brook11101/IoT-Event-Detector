@@ -58,7 +58,7 @@ def read_static_logs(filename):
 
 
 def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules,
-                 llsc_list):
+                 llsc_list, time_list):
     """
     执行单条规则：
     1. **使用 LLSC，发送 `start` 消息**。
@@ -142,16 +142,20 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
             for stream in stream_list:
                 send_message(rule_name, stream, "end", rule_id)
 
+
     finally:
         # **8️ 释放设备锁**
         print(f"规则 {rule_id} 执行完成，已释放锁：{devices_to_lock}")
+
+        # 记录规则执行时间
+        time_list.append(time() - rule_trigger_time)
 
         with lock:
             offset_dict_global.update(local_offset_dict)
             print(f"规则 {rule_id} 更新 offset_dict: {local_offset_dict}")
 
 
-def process_epoch(epoch_logs, output_logs, offset_dict_global, offset_dict_cur, missing_rules, llsc_list):
+def process_epoch(epoch_logs, output_logs, offset_dict_global, offset_dict_cur, missing_rules, llsc_list, time_list):
     """
     1. **创建 Barrier，确保所有规则线程同步启动**。
     2. **筛选 epoch_logs，移除 `ancestor` 在 `llsc_list` 里的规则**。
@@ -184,7 +188,8 @@ def process_epoch(epoch_logs, output_logs, offset_dict_global, offset_dict_cur, 
 
     for log in filtered_logs:
         thread = threading.Thread(target=execute_rule, args=(
-        log, output_logs, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules, llsc_list))
+            log, output_logs, lock, dependency_map, offset_dict_global, offset_dict_cur, barrier, missing_rules,
+            llsc_list, time_list))
         threads.append(thread)
         thread.start()
 
@@ -206,10 +211,11 @@ def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Even
     offset_dict_cur = {}  # 每轮次更新
     missing_rules = []  # 记录缺失规则
     llsc_list = []  # **记录因为 LLSC 没有执行成功的规则**
+    time_list = []
 
     for epoch_logs in epochs_logs:
         offset_dict_cur = copy.copy(offset_dict_global)
-        process_epoch(epoch_logs, final_logs, offset_dict_global, offset_dict_cur, missing_rules, llsc_list)
+        process_epoch(epoch_logs, final_logs, offset_dict_global, offset_dict_cur, missing_rules, llsc_list, time_list)
         final_logs.append("")  # **插入空行，区分不同 epoch**
 
     with open(output_file, "w", encoding="utf-8") as f:
@@ -217,7 +223,7 @@ def generate_cv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Even
             f.write(str(log) + "\n")
 
     print(f"Simulation completed. Results saved to {output_file}")
-    return missing_rules, llsc_list  # **返回 missing_rules 和 llsc_list**
+    return missing_rules, llsc_list, time_list  # **返回 missing_rules 和 llsc_list , time_list**
 
 
 ### === 第二部分：检测 Race Condition === ###
@@ -328,7 +334,9 @@ def WithCV():
     create_streams()
 
     # 生成 `cv_logs.txt` 并获取缺失规则
-    missing_rules, llsc_list = generate_cv_logs()
+    missing_rules, llsc_list, time_list = generate_cv_logs()
+
+    print(time_list)
 
     print("== 缺失规则 ==")
     print(missing_rules)
@@ -371,7 +379,7 @@ def WithCV():
     for conflict_type, mismatches in filtered_conflict_result.items():
         print(f"{conflict_type}: {mismatches}")
 
-    return filtered_conflict_result, new_mismatch_count
+    return filtered_conflict_result, new_mismatch_count, time_list
 
 
 if __name__ == "__main__":

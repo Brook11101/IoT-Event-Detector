@@ -7,7 +7,7 @@ import numpy as np
 # 但说实话设计的不够合理，横轴应该是规则集下锁申请的平均数量。而不是规则的数量
 
 # 文件路径
-base_path = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\Mutex\Atomicity\Unit\Data\DeviceName"
+base_path = r"/Synchronizer/Mutex/CS\Unit\Data\DeviceName"
 file_prefixes = ["device_name"]
 rule_counts = [5, 10, 15, 20, 25]
 
