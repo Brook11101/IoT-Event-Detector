@@ -1,8 +1,9 @@
 import copy
 import threading
-import time
+from time import time,sleep
 import random
 import ast
+from Synchronizer.CV.LLSC import clear_table, insert_log
 from Synchronizer.CV.UserScenario import get_user_scenario  # 用户定义的模板，用于比对预期顺序
 from Synchronizer.CV.UserScenario import build_dependency_map  # 用户定义的模板，用于比对预期顺序
 from RuleSet import deviceStatus
@@ -86,7 +87,11 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
     # **等待所有线程到达屏障**
     barrier.wait()
 
-    print(f"[{rule_name}] 线程启动，需要设备锁：{devices_to_lock}")
+    rule_trigger_time = time()
+
+    sleep(random.uniform(1, 2))  # **模拟触发到执行的延迟**
+
+    print(f"[{rule_name}] 收到Action，开始执行，需要设备：{devices_to_lock}")
 
     # 3. 调用 `send_message_atomic()` 进行**原子性**发送
     if stream_list:
@@ -125,8 +130,14 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
 
     try:
         # 6️ **执行任务**
-        print(f"规则 {rule_id} 已获取所有锁，开始执行...")
-        time.sleep(random.uniform(1, 2))  # **模拟任务执行**
+
+        print(f"规则 {rule_id} 已获取所有设备锁，开始执行...")
+
+        # 使用LLSC机制，插入记录
+        cur_time = time
+
+        insert_log(rule["RuleId"], rule_id, rule_trigger_time)
+
         output_list.append(rule)  # **记录执行顺序**
 
         # 7️ **发送 `end` 消息**
@@ -302,6 +313,9 @@ def check_rcs(user_template_dict, conflict_dict):
 
 
 def WithCV():
+
+    clear_table()
+
     clear_all_streams()
     create_streams()
 
