@@ -1,12 +1,12 @@
 import threading
-import time
+from time import time, sleep
 import random
 import ast
-from Synchronizer.CV.UserScenario import get_user_scenario  # 用户定义的模板，用于比对预期顺序
 from RuleSet import deviceStatus
-from Synchronizer.Mutex.LLSC.DBMyISAM import insert_log
+from Synchronizer.CV.LLSC import insert_log, clear_table
 
 deviceStatus = deviceStatus
+
 
 ### === 第一部分：读取和生成 `nocv_llsc_logs.txt` === ###
 def read_static_logs(filename):
@@ -22,37 +22,30 @@ def read_static_logs(filename):
 
     return logs_per_epoch
 
+
 def execute_rule(rule, output_list, lock, barrier):
     """
     执行单条规则：
     1. **先等待 `barrier`，保证所有线程同步启动**。
     2. **LLSC**。
-    3. **成功获取所有锁后，执行任务（sleep 1-2s）**。
+    3. **成功获取所有锁后，执行任务**。
     4. **任务完成后，释放所有锁**。
     """
-
-    ruleid = rule["id"]
-    trigger_device = rule["Trigger"]
-    condition_device = rule["Condition"]
-    action_device = rule["Action"]
-    description = rule["description"]
-    lock_device = rule["Lock"]
 
     # **等待所有线程到达屏障**
     barrier.wait()
 
+    rule_trigger_time = time()
+
+    sleep(random.uniform(1, 2))  # **模拟触发到执行的延迟**
+
     try:
         print(f"规则 {rule['id']} 直接开始执行...")
-        start_timestamp = time
-        start_time = time
-        time.sleep(random.uniform(1, 2))  # **模拟任务执行**
-        # 将数据插入数据库
-        # exec_time = insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device,
-        #                        start_timestamp,
-        #                        start_time)
+        insert_log(rule["RuleId"], rule["id"], rule_trigger_time)
         output_list.append(rule)  # **线程安全地记录执行顺序**
     finally:
         print(f"规则 {rule['id']} 执行完成")
+
 
 # **并发执行当前轮次的所有规则**
 def process_epoch(epoch_logs, output_logs):
@@ -83,7 +76,7 @@ def process_epoch(epoch_logs, output_logs):
 
 
 def generate_nocv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\static_logs.txt",
-                        output_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\nocv_llsc_logs.txt"):
+                       output_file=r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data\nocv_llsc_logs.txt"):
     """
     1. **读取 `static_logs.txt`**，获取规则数据。
     2. **对每个 `epoch_logs` 轮次，使用 `Barrier` 机制执行所有规则**。
@@ -102,6 +95,7 @@ def generate_nocv_logs(input_file=r"E:\研究生信息收集\论文材料\IoT-Ev
             f.write(str(log) + "\n")
 
     print(f"Simulation completed. Results saved to {output_file}")
+
 
 ### === 第二部分：检测 Race Condition === ###
 
@@ -190,6 +184,7 @@ def read_nocv_logs(filename):
     epochs_logs = [[ast.literal_eval(line) for line in epoch.split("\n") if line.strip()] for epoch in epochs]
 
     return epochs_logs  # **返回每个轮次的日志列表**
+
 
 # 按照轮次划分过滤潜在CRI，得到真实CRI
 def detectRaceCondition_per_epoch(epochs_logs):
@@ -289,6 +284,10 @@ def check_racecondition_with_score(conflict_dict, rule_scores):
 
 
 def WithOutCV_LLSC():
+
+    # 清空LLSC所用的数据库表
+    clear_table()
+
     # 生成 `nocv_llsc_logs.txt`
     generate_nocv_logs()
 
@@ -298,7 +297,8 @@ def WithOutCV_LLSC():
     # 从 `nocv_llsc_logs.txt` 检测 Race Condition
     conflict_dict = detectRaceCondition_per_epoch(nocv_logs)
 
-    mismatch_count = len(conflict_dict["AC"])+len(conflict_dict["UC"])+len(conflict_dict["CBK"])+len(conflict_dict["CP"])
+    mismatch_count = len(conflict_dict["AC"]) + len(conflict_dict["UC"]) + len(conflict_dict["CBK"]) + len(
+        conflict_dict["CP"])
     conflict_result = conflict_dict
 
     # # **获取所有规则的 Score**
@@ -315,6 +315,7 @@ def WithOutCV_LLSC():
         print(f"{conflict_type}: {mismatches}")
 
     return conflict_result, mismatch_count
+
 
 if __name__ == "__main__":
     WithOutCV_LLSC()

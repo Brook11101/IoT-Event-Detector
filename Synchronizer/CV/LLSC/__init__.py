@@ -72,7 +72,6 @@ def insert_log(ruleid, id, timestamp):
     cursor = connection.cursor()
 
     try:
-
         # 检查冲突规则
         current_timestamp = time()
         conflict_rule_ids = StatusMapping.rule_conflict_map.get(ruleid, set())
@@ -102,6 +101,7 @@ def insert_log(ruleid, id, timestamp):
             """, (
                 ruleid, id, current_timestamp, status
             ))
+            return status
         else:
             print(f"{ruleid} no conflict")
             # 如果没有冲突，直接插入
@@ -111,6 +111,7 @@ def insert_log(ruleid, id, timestamp):
             """, (
                 ruleid, id, current_timestamp, True
             ))
+            return True
 
     except Exception as e:
         print(f"Error during log insertion for rule {ruleid}: {e}")
