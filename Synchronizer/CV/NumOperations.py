@@ -12,6 +12,7 @@ BASE_DIR = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchroniz
 NUM_OF_OPERATIONS = [1, 2, 3, 4, 5]  # 扰动次数
 NUM_TRIALS = 10  # 每个 num_of_operations 执行 10 轮实验
 
+
 def run_experiment():
     """
     进行完整实验，测试不同 Num Of Operations (times=1~5)，每个 times 进行 10 轮实验。
@@ -20,6 +21,7 @@ def run_experiment():
     - `withoutcv_talock_num.txt` (TALOCK CRI 检测结果)
     - `withoutcv_llsc_num.txt` (LLSC CRI 检测结果)
     - `withcv_num.txt` (WithCV CRI 检测结果)
+    - `withcv_time.txt` (WithCV 执行时间)
     """
 
     for num_ops in NUM_OF_OPERATIONS:
@@ -30,10 +32,11 @@ def run_experiment():
         log_num_path = os.path.join(exp_dir, "log_num.txt")
         talock_path = os.path.join(exp_dir, "withoutcv_talock_num.txt")
         llsc_path = os.path.join(exp_dir, "withoutcv_llsc_num.txt")
-        withcv_path = os.path.join(exp_dir, "withcv_num.txt")
+        withcv_num_path = os.path.join(exp_dir, "withcv_num.txt")
+        withcv_time_path = os.path.join(exp_dir, "withcv_time.txt")
 
         # **清空文件**
-        for file_path in [log_num_path, talock_path, llsc_path, withcv_path]:
+        for file_path in [log_num_path, talock_path, llsc_path, withcv_num_path, withcv_time_path]:
             with open(file_path, "w") as f:
                 pass
 
@@ -57,11 +60,12 @@ def run_experiment():
             with open(llsc_path, "a") as f:
                 f.write(f"{mismatch_count_llsc}\n")
 
-            # **执行 WithCV() CRI 检测**
-            _, mismatch_count_withcv = WithCV()
-            with open(withcv_path, "a") as f:
+            # **执行 WithCV() CRI 检测 , 记录时间**
+            _, mismatch_count_withcv, time_list = WithCV()
+            with open(withcv_num_path, "a") as f:
                 f.write(f"{mismatch_count_withcv}\n")
-
+            with open(withcv_time_path, "a") as f:
+                f.write(f"{time_list}\n")
 
     print(f"Operations Num-{num_ops}-{trial}  == Experiment Completed Successfully ==")
 
