@@ -47,7 +47,7 @@ box = plt.boxplot(
     showmeans=True,   # 显示均值
     meanline=True,    # 均值用线段表示
     patch_artist=True, # 允许箱子填充颜色
-    whis = 3
+    whis = 1.5
 )
 
 # ========== 样式设置 (与示例图一致) ==========
@@ -72,7 +72,7 @@ for flier in box['fliers']:
 # ========== 动态设置 y 轴刻度 ==========
 y_max = max(max(times) for times in all_execution_times)
 y_step = round(y_max / 10, 1)  # 设置步长
-y_ticks = np.arange(0, y_max + y_step, y_step)
+y_ticks = np.arange(0, 5, 0.2)
 plt.yticks(y_ticks)
 
 # ========== 手动创建图例 (legend) ==========
