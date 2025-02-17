@@ -186,5 +186,3 @@ def run_static_simulation(times=1,
     print(f"=={rule_id} Simulation Done. Logs written to {log_file_path} ==")
 
     return rule_id
-
-run_static_simulation()

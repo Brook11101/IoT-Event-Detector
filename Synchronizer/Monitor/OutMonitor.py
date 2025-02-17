@@ -1,6 +1,7 @@
 import subprocess
 from ProcessDAG import get_static_DAG
 
+
 def clear_log_file(log_file_path):
     """
     清空日志文件
@@ -55,20 +56,23 @@ def read_execution_log(log_file_path):
     """
     读取 Java 执行日志，解析规则 ID 执行顺序
     :param log_file_path: 日志文件路径
-    :return: 规则 ID 执行顺序（列表）
+    :return: 规则 ID 执行顺序（列表）、执行时间列表
     """
     execution_order = []
+    time_list = []
     try:
         with open(log_file_path, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
-                    rule_id, _ = line.strip().split(",", 1)
+                    rule_id, time = line.strip().split(",", 1)
                     execution_order.append(int(rule_id))
+                    time_list.append(time)
     except FileNotFoundError:
         print(f"日志文件未找到: {log_file_path}")
     except Exception as e:
         print(f"读取日志文件时出错: {e}")
-    return execution_order
+    return execution_order, time_list
+
 
 def validate_execution_order(dag, execution_order):
     """
@@ -90,47 +94,15 @@ def validate_execution_order(dag, execution_order):
     return violations == 0, violations
 
 
-def run_multiple_rounds(java_class_path, log_file_path, dag, rounds=10):
-    """
-    多轮运行 Java 并发任务，并验证 DAG 依赖关系
-    :param java_class_path: Java 类路径（包名 + 类名）
-    :param log_file_path: 日志文件路径
-    :param dag: 预先构建的 DAG
-    :param rounds: 执行轮数
-    :return: 每轮违规次数的列表
-    """
-    violations_per_round = []
+def OutMonitor():
+    java_class_path = "concurrency.experiment.OutMonitor"
+    log_file_path = "E:\\研究生信息收集\\论文材料\\IoT-Event-Proxy\\src\\main\\java\\concurrency\\experiment\\data\\OutMonitorLog.txt"
 
-    for i in range(rounds):
-        print(f"开始第 {i + 1} 轮执行...")
-        execute_without_monitor(java_class_path, log_file_path)
+    execute_without_monitor(java_class_path, log_file_path)
+    execution_order, time_list = read_execution_log(log_file_path)
 
-        execution_order = read_execution_log(log_file_path)
-        _, violations = validate_execution_order(dag, execution_order)
-
-        violations_per_round.append(violations)
-        print(f"第 {i + 1} 轮完成，违规次数: {violations}")
-
-    return violations_per_round
+    return execution_order, time_list
 
 
 if __name__ == "__main__":
-    java_class_path_concurr = "concurrency.experiment.WithOutMonitor"
-    log_file_path_concurr = "E:\\研究生信息收集\\论文材料\\IoT-Event-Proxy\\src\\main\\java\\concurrency\\experiment\\data\\WithOutMonitorLog.txt"
-
-    # 获取 DAG
-    dag = get_static_DAG()
-
-    # 多轮执行 Java 文件并验证 DAG
-    rounds = 15
-    violations_per_round = run_multiple_rounds(
-        java_class_path_concurr,
-        log_file_path_concurr,
-        dag,
-        rounds
-    )
-
-    # 输出统计结果
-    print("\n多轮执行完成！违规次数统计如下：")
-    for i, violations in enumerate(violations_per_round):
-        print(f"第 {i + 1} 轮: 违规次数 {violations}")
+    print(OutMonitor())
