@@ -115,7 +115,7 @@ def run_multiple_rounds(java_class_path, log_file_path, dag, rounds=10):
 
 
 if __name__ == "__main__":
-    java_class_path_concurr = "concurrency.experiment.ExecutorWithOutMonitor"
+    java_class_path_concurr = "concurrency.experiment.WithOutMonitor"
     log_file_path_concurr = "E:\\研究生信息收集\\论文材料\\IoT-Event-Proxy\\src\\main\\java\\concurrency\\experiment\\data\\WithOutMonitorLog.txt"
 
     # 获取 DAG

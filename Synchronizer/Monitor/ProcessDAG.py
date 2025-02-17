@@ -140,7 +140,7 @@ def get_static_DAG():
     dependency_graph = build_dependency_graph(parsed_rules)
 
     # 可视化 DAG
-    visualize_dependency_graph(dependency_graph)
+    # visualize_dependency_graph(dependency_graph)
 
     return dependency_graph
 

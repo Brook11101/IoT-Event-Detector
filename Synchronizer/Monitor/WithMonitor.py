@@ -118,14 +118,14 @@ def run_multiple_rounds(java_class_path, log_file_path, dag, rounds=10):
 
 if __name__ == "__main__":
     # Java 目标类路径
-    java_class_path = "concurrency.experiment.ExecutorWithMonitor"
+    java_class_path = "concurrency.experiment.WithMonitor"
     log_file_path = "E:\\研究生信息收集\\论文材料\\IoT-Event-Proxy\\src\\main\\java\\concurrency\\experiment\\data\\WithMonitorLog.txt"
 
     # 获取 DAG
     dag = get_static_DAG()
 
     # 运行多轮 Java 执行并验证 DAG 依赖
-    rounds = 15
+    rounds = 5
     violations_per_round = run_multiple_rounds(java_class_path, log_file_path, dag, rounds)
 
     # 输出统计结果
