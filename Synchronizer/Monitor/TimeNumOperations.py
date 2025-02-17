@@ -12,8 +12,8 @@ from Synchronizer.Monitor.ProcessDAG import get_static_DAG
 BASE_DIR = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\Monitor\Data"
 
 # **实验参数**
-NUM_OF_OPERATIONS = [1]  # 扰动次数
-NUM_TRIALS = 1  # 每个 num_of_operations 执行 10 轮实验
+NUM_OF_OPERATIONS = [1, 2, 3, 4, 5]  # 扰动次数
+NUM_TRIALS = 10  # 每个 num_of_operations 执行 10 轮实验
 
 
 def read_static_logs(log_file=os.path.join(BASE_DIR, "static_logs.txt")):
