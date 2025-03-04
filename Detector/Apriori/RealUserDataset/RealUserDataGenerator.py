@@ -5,7 +5,7 @@ from numpy.random import randint
 import numpy as np
 import configparser
 
-times = 40
+times = 50
 Records = "RealUserRecords.txt"
 TriggerRecords = "RealUserTriggerRecords.txt"
 ActionRecords = "RealUserActionRecords.txt"

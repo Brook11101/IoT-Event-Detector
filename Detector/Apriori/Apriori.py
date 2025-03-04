@@ -170,7 +170,7 @@ def generate_big_rules(L, support_data, min_conf):
 
 def get_target_rule(rule , data_set):
 
-    L, support_data = generate_L(data_set, k=2, min_support=0.2)
+    L, support_data = generate_L(data_set, k=2, min_support=0.05)
     # big_rules_list = generate_big_rules(L, support_data, min_conf=0.7)
 
     target_list = {}
