@@ -200,7 +200,7 @@ def run_experiment():
         with open(conflict_file, "w") as conflict_output, \
              open(time_file, "w") as time_output:
 
-            for round_number in range(20):
+            for round_number in range(10):
                 # ----重置全局变量----
                 global device_status, execution_order, thread_execution_times
                 device_status = {key: 0 for key in device_status}

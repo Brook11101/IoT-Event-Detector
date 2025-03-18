@@ -2,6 +2,7 @@ import json
 import random
 import threading
 from time import sleep, time
+
 import mysql
 import RuleSet
 from DBMyISAM import insert_log, clear_table
@@ -40,6 +41,7 @@ deviceStatus = {
 
 thread_execution_times = []
 
+
 def execute_rule(rule):
     """
     执行单条规则，将数据插入数据库，并记录本线程的执行时间。
@@ -48,16 +50,21 @@ def execute_rule(rule):
     # 获取规则的各项数据
     ruleid = rule["RuleId"]
 
+    trigger_start_time = time()
+
+    # 模拟触发到执行的延迟
+    sleep(random.uniform(1, 20))
+
     # 记录线程开始时间
     start_time = time()
 
-    # 模拟触发到执行的延迟
-    sleep(random.uniform(1, 2))
-
     # 将数据插入数据库
-    exec_time = insert_log(ruleid, start_time)
+    exec_time, status = insert_log(ruleid, start_time, trigger_start_time)
+    # 如果是需要执行，那么需要加上执行时间
+    if status:
+        exec_time += random.uniform(1, 2)
+        thread_execution_times.append(exec_time)
 
-    thread_execution_times.append(exec_time)
 
 
 def execute_all_rules_concurrently(rules):
@@ -147,7 +154,7 @@ def run_experiment():
         time_file = f"{base_path}\\time_lockfree_group_{group_number}.txt"
 
         with open(conflict_file, "w") as conflict_output, open(time_file, "w") as time_output:
-            for round_number in range(20):
+            for round_number in range(10):
                 # 1) 清空数据库中的旧记录
                 clear_table()
 

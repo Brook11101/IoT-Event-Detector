@@ -58,7 +58,7 @@ def create_myisam_table():
 
 
 # 插入规则日志（使用 MyISAM）
-def insert_log(ruleid, start_time):
+def insert_log(ruleid, start_time,trigger_start_time):
     """
     插入规则执行日志，禁用事务并使用 READ UNCOMMITTED 隔离级别。
     """
@@ -71,6 +71,7 @@ def insert_log(ruleid, start_time):
     try:
         # 检查冲突规则
         conflict_rule_ids = StatusMapping.rule_conflict_map.get(ruleid, set())
+        status = True
 
         if conflict_rule_ids:
             conflict_rule_ids_placeholder = ','.join(map(str, conflict_rule_ids))
@@ -80,7 +81,7 @@ def insert_log(ruleid, start_time):
                 AND timestamp >= %s
                 AND status = TRUE
                 LIMIT 1
-            """, (start_time,))
+            """, (trigger_start_time,))
             conflict_result = cursor.fetchone()
 
             if conflict_result:
@@ -113,7 +114,7 @@ def insert_log(ruleid, start_time):
         exec_time = 0
     finally:
         connection.close()
-    return exec_time
+    return exec_time,status
 
 
 # 清空表内容

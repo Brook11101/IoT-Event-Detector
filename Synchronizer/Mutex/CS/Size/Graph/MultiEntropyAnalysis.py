@@ -377,7 +377,7 @@ random.seed(32)
 rule_groups = []
 remaining_rules = labeled_rules.copy()
 
-group_sizes = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+group_sizes = [10, 20, 30,  40,  50]
 previous_group = []
 
 for size in group_sizes:
@@ -502,4 +502,9 @@ fig.legend(loc="upper left", fontsize=10, bbox_to_anchor=(0.1, 0.95))
 plt.title("Comparison of Normalized Entropy and Average Time Across Lock Types", fontsize=14)
 plt.tight_layout()
 plt.show()
+
+# 打印各 size 下的归一化熵
+print("Size | DeviceType Entropy | Room Entropy")
+for size, dt_entropy, r_entropy in zip(group_sizes, device_type_entropies, room_entropies):
+    print(f"{size:<4} | {dt_entropy:<18.4f} | {r_entropy:<.4f}")
 

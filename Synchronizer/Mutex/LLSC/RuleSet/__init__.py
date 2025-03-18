@@ -470,4 +470,38 @@ def group_rules():
     return group1, group2, group3, group4, group5
 
 
-Group1, Group2, Group3, Group4, Group5 = group_rules()
+def group_rules_conflict_only():
+    """
+    返回 5 组仅包含冲突规则的列表，每组只包含其对应的冲突 ID 集，
+    不再添加无冲突规则。
+    """
+    all_rules = get_all_rules()
+
+    G1_conflict_ids = {
+        5, 9, 10, 11, 13, 22, 25, 27, 28, 29, 45, 46, 68, 84, 86, 94, 95
+    }
+    G2_new_add = {23, 24, 47, 50, 53, 54, 78, 79, 85, 93}
+    G3_new_add = {36, 37, 38, 52, 56, 57, 60, 62, 64, 70, 76, 82, 98, 99}
+    G4_new_add = {21, 39, 43, 44, 49, 61, 71, 72, 74, 81, 96, 97}
+    G5_new_add = {20, 55, 59}
+
+    group1_conflict_set = G1_conflict_ids
+    group2_conflict_set = group1_conflict_set.union(G2_new_add)
+    group3_conflict_set = group2_conflict_set.union(G3_new_add)
+    group4_conflict_set = group3_conflict_set.union(G4_new_add)
+    group5_conflict_set = group4_conflict_set.union(G5_new_add)
+
+    def rules_by_ids(rules, ids_set):
+        return [r for r in rules if r['RuleId'] in ids_set]
+
+    group1 = rules_by_ids(all_rules, group1_conflict_set)
+    group2 = rules_by_ids(all_rules, group2_conflict_set)
+    group3 = rules_by_ids(all_rules, group3_conflict_set)
+    group4 = rules_by_ids(all_rules, group4_conflict_set)
+    group5 = rules_by_ids(all_rules, group5_conflict_set)
+
+    return group1, group2, group3, group4, group5
+
+
+# 获取分组
+Group1, Group2, Group3, Group4, Group5 = group_rules_conflict_only()

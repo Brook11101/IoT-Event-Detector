@@ -59,11 +59,14 @@ def execute_rule(rule):
 
     # 当前请求的执行开始时间: 仅用于插入日志（原逻辑）
     start_timestamp = time()
-    # 记录线程开始时间
-    start_time = time()
 
     # 模拟触发到执行的延迟
-    sleep(random.uniform(1, 2))
+    sleep(random.uniform(1, 20))
+
+
+    # 记录等待开始时间
+    start_time = time()
+
     # 将数据插入数据库
     exec_time = insert_log(ruleid, trigger_device, condition_device, action_device, description, lock_device, start_timestamp,
                start_time)

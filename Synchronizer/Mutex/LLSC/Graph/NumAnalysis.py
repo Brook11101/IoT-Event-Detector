@@ -37,9 +37,9 @@ def read_and_average_data(base_path, file_pattern):
 
 # 读取三种方案的数据
 results = {
-    "No Mutex": read_and_average_data(base_paths["LockOut"], "num_lockout_group_{}.txt"),
-    "Block Mutex": read_and_average_data(base_paths["LockWith"], "num_lockwith_group_{}.txt"),
-    "LL/SC Mutex": read_and_average_data(base_paths["LockFree"], "num_lockfree_group_{}.txt"),
+    "Without Mutex": read_and_average_data(base_paths["LockOut"], "num_lockout_group_{}.txt"),
+    "CAS-Mutex": read_and_average_data(base_paths["LockWith"], "num_lockwith_group_{}.txt"),
+    "LL/SC-Mutex": read_and_average_data(base_paths["LockFree"], "num_lockfree_group_{}.txt"),
 }
 
 # 设置柱状图宽度
@@ -58,31 +58,35 @@ for i, (scheme, averages) in enumerate(results.items()):
 
     # 添加数值标签
     for bar, value in zip(bars, averages):
-        ax.text(bar.get_x() + bar.get_width() / 2, value + 1, f"{int(value)}", ha='center', fontsize=10, color='black')
+        ax.text(bar.get_x() + bar.get_width() / 2, value + 1, f"{int(value)}", ha='center', fontsize=12, color='black')
 
 # 绘制 group_rules_nums 作为折线图
-ax.plot(x_indexes + bar_width, group_rules_nums, marker="o", linestyle="-", color="red", label="Total Rules")
+ax.plot(x_indexes + bar_width, group_rules_nums, marker="o", linestyle="-.", color="red", label="Triggered Rules", linewidth=2)
 
 # 为折线图上的每个点添加数值标注
 for i, value in enumerate(group_rules_nums):
-    ax.text(x_indexes[i] + bar_width, value + 1, f"{int(value)}", ha='center', fontsize=10, color="red")
+    ax.text(x_indexes[i] + bar_width, value + 1, f"{int(value)}", ha='center', fontsize=12, color="red")
 
 # 配置图形
-ax.set_title("Comparison of Different Mutex Schemes", fontsize=14)
-ax.set_xlabel("Potential Mutex Conflicts in Rule Set", fontsize=12)
-ax.set_ylabel("Average Mutex Conflict Count", fontsize=12)
+ax.set_title("Comparison of Different Mutex Schemes", fontsize=16)  # 标题字号增大
+ax.set_xlabel("Potential Mutex Conflicts in Rule Set", fontsize=16)  # x 轴标题字号增大
+ax.set_ylabel("Average Mutex Conflict Count", fontsize=16)  # y 轴标题字号增大
 ax.set_xticks(ticks=x_indexes + bar_width)
-ax.set_xticklabels(group_potential_conflicts)
-ax.legend(title="Mutex Scheme")
-
+ax.set_xticklabels(group_potential_conflicts, fontsize=16)  # x 轴刻度字号增大
+ax.legend(title="Mutex Scheme", fontsize=12, loc="upper left")
 # 添加水平网格线
 ax.grid(True, linestyle="--", alpha=0.5)
 
 # 设置纵轴刻度
-ax.set_yticks(range(0, 110, 10))
+ax.set_yticks(range(0, 70, 10))
+ax.tick_params(axis="both", which="major", labelsize=16)  # 纵轴刻度字号增大
 
 # 适配图像
 plt.tight_layout()
+
+# 保存图像为 SVG
+output_path = "mutex_comparison.svg"
+plt.savefig(output_path, format="svg")
 
 # 显示图形
 plt.show()

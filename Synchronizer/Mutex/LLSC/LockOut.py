@@ -32,11 +32,14 @@ def execute_rule_without_lock(rule):
     trigger_device = rule["Trigger"]
     action_devices = rule["Action"]
 
+    sleep(random.uniform(0, 20))
+
+
     start_time = time()
+    sleep(random.uniform(1, 2))
     try:
         # 模拟规则执行（不加锁）
         print(f"Executing rule {ruleid}...")
-        sleep(random.uniform(1, 2))
 
         # # 更新全局状态字典（仅用 device_status_lock 来保护状态写操作）
         # with device_status_lock:
@@ -116,7 +119,7 @@ def run_experiment():
         time_file = f"{base_path}\\time_lockout_group_{group_number}.txt"
 
         with open(conflict_file, "w") as conflict_output, open(time_file, "w") as time_output:
-            for round_number in range(20):  # 每组执行20轮
+            for round_number in range(10):  # 每组执行20轮
                 global device_status, execution_order, thread_execution_times
                 # 重置全局变量
                 device_status = {key: 0 for key in device_status}
