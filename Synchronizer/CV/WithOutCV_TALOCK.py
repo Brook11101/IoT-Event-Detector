@@ -61,7 +61,7 @@ def execute_rule(rule, output_list, lock, barrier):
     # **等待所有线程到达屏障**
     barrier.wait()
 
-    time.sleep(random.uniform(1, 2))  # **模拟触发到执行的延迟**
+    time.sleep(random.uniform(1, 5))  # **模拟触发到执行的延迟**
 
     # **按字典序申请所有设备锁**
     for device in devices_to_lock:
@@ -69,6 +69,7 @@ def execute_rule(rule, output_list, lock, barrier):
 
     try:
         print(f"规则 {rule_id} 已获取所有锁，开始执行...")
+        time.sleep(random.uniform(1, 2))  # **模拟指令转发的延迟**
         output_list.append(rule)  # **线程安全地记录执行顺序**
     finally:
         # **按字典序释放设备锁**

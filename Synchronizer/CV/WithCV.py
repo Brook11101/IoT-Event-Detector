@@ -87,9 +87,12 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
 
     # **等待所有线程到达屏障**
     barrier.wait()
+    # 模拟指令的乱序到达
+    sleep(random.uniform(1, 5))
 
+    # 记录触发时间
     rule_trigger_time = time()
-    sleep(random.uniform(1, 2))  # **模拟触发到执行的延迟**
+
     print(f"[{rule_name}] 收到Action，开始执行，需要设备：{devices_to_lock}")
 
     # **3. 调用 `send_message_atomic()` 进行原子性发送**
@@ -133,8 +136,11 @@ def execute_rule(rule, output_list, lock, dependency_map, offset_dict_global, of
         has_executed = insert_log(rule["RuleId"], rule_id, rule_trigger_time)
 
         if has_executed:
+            # **模拟指令转发的延迟**
             output_list.append(rule)  # **记录执行顺序**
+            sleep(random.uniform(1, 2))
         else:
+            # 直接取消
             llsc_list.append(rule_id)  # **如果 LLSC 执行失败，记录规则ID**
 
         # **7️ 发送 `end` 消息**

@@ -33,9 +33,9 @@ def execute_rule(rule, output_list, lock, barrier, llsc_list):
 
     # **等待所有线程到达屏障**
     barrier.wait()
+    sleep(random.uniform(1, 5))  # **模拟触发到执行的延迟**
 
     rule_trigger_time = time()
-    sleep(random.uniform(1, 2))  # **模拟触发到执行的延迟**
 
     try:
         print(f"规则 {rule['id']} 直接开始执行...")
@@ -45,6 +45,7 @@ def execute_rule(rule, output_list, lock, barrier, llsc_list):
 
         if has_executed:
             output_list.append(rule)  # **线程安全地记录执行顺序**
+            sleep(random.uniform(1, 2))  # **模拟触发到执行的延迟**
         else:
             llsc_list.append(rule["id"])  # **如果 LLSC 失败，加入 llsc_list**
 

@@ -9,16 +9,17 @@ plt.style.use("seaborn")
 
 # 实验数据存储的根目录
 BASE_DIR = r"E:\研究生信息收集\论文材料\IoT-Event-Detector\Synchronizer\CV\Data"
-NUM_OF_OPERATIONS = [1, 2, 3, 4, 5]  # 实验操作次数
+NUM_OF_OPERATIONS = [1, 2, 3, 4,5]  # 实验操作次数
 
 # 存储计算结果
 cri_withcv = []
 cri_talock = []
 cri_llsc = []
+cri_without = []  # 新增，用于存储 without_num.txt 的数据
 trigger_counts = []
 
-# 读取数据并计算平均值
 def read_avg(file_path):
+    """读取文件并返回内容的均值"""
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
             values = [int(line.strip()) for line in f.readlines()]
@@ -31,6 +32,7 @@ for num_ops in NUM_OF_OPERATIONS:
     cri_withcv.append(read_avg(os.path.join(exp_dir, "withcv_num.txt")))
     cri_talock.append(read_avg(os.path.join(exp_dir, "withoutcv_talock_num.txt")))
     cri_llsc.append(read_avg(os.path.join(exp_dir, "withoutcv_llsc_num.txt")))
+    cri_without.append(read_avg(os.path.join(exp_dir, "without_num.txt")))   # 新增
     trigger_counts.append(read_avg(os.path.join(exp_dir, "log_num.txt")))
 
 # 转换数据为 DataFrame 以便绘图
@@ -39,6 +41,7 @@ df = pd.DataFrame({
     "WithCV": cri_withcv,
     "WithoutCV_TALOCK": cri_talock,
     "WithoutCV_LLSC": cri_llsc,
+    "Without": cri_without,  # 新增
     "Triggered Rules": trigger_counts
 })
 
@@ -63,22 +66,31 @@ ax.margins(x=0.1)
 
 # 画柱状图
 index = np.arange(len(NUM_OF_OPERATIONS))
-bar_width = 0.2
+bar_width = 0.15
 
+# 1) WithCV (红色, 斜线)
 bars_withcv = ax.bar(index - 1.5 * bar_width, df["WithCV"], bar_width,
                      label="WithCV", color="red", edgecolor='black', hatch='/')
+
+# 2) WithoutCV_TALOCK (橙色, 反斜线)
 bars_talock = ax.bar(index - 0.5 * bar_width, df["WithoutCV_TALOCK"], bar_width,
                      label="WithoutCV_TALOCK", color="orange", edgecolor='black', hatch='\\')
+
+# 3) WithoutCV_LLSC (棕色, 横线)
 bars_llsc = ax.bar(index + 0.5 * bar_width, df["WithoutCV_LLSC"], bar_width,
                    label="WithoutCV_LLSC", color="brown", edgecolor='black', hatch='-')
 
-# 画折线图
+# 4) Without (绿色, “x” 阴影)
+bars_without = ax.bar(index + 1.5 * bar_width, df["Without"], bar_width,
+                      label="Without", color="green", edgecolor='black', hatch='x')
+
+# 画折线图: 触发规则数
 ax.plot(index, df["Triggered Rules"], marker='o', linestyle='-', color='blue',
         label="Triggered Rules", markersize=6, linewidth=2)
 
-# 在折线图上也添加数值标签（可选）
+# 在折线图上添加数值标签（可选）
 for x_, y_ in zip(index, df["Triggered Rules"]):
-    ax.text(x_, y_+3, f"{y_:.0f}", ha="center", va="bottom", fontsize=9, color="blue")
+    ax.text(x_, y_ + 3, f"{y_:.0f}", ha="center", va="bottom", fontsize=9, color="blue")
 
 # 设置 x 轴刻度和标签
 ax.set_xticks(index)
@@ -90,7 +102,6 @@ ax.set_ylabel("Count")
 ax.yaxis.grid(True, linestyle='--', alpha=0.7)
 ax.xaxis.grid(False)
 
-# 给柱形图添加数值标签的函数
 def add_bar_labels(ax, bars, offset=0.5):
     """在每个柱子上方标注数值，offset 表示数值距离柱顶的偏移量"""
     for bar in bars:
@@ -102,13 +113,14 @@ def add_bar_labels(ax, bars, offset=0.5):
             ha='center', va='bottom', fontsize=9
         )
 
-# 分别给三组柱状图添加数值标签
+# 分别给四组柱状图添加数值标签
 add_bar_labels(ax, bars_withcv)
 add_bar_labels(ax, bars_talock)
 add_bar_labels(ax, bars_llsc)
+add_bar_labels(ax, bars_without)
 
-# 图例放在图外右侧，以防止遮挡数据
-ax.legend( loc='best', borderaxespad=0.)
+# 图例位置
+ax.legend(loc='best', borderaxespad=0.)
 
 ax.set_title("Race Condition Violations Detection On Different Num of Operations")
 
