@@ -63,95 +63,134 @@ def gather_in_out_data():
     return data_for_plot, NUM_OF_OPERATIONS
 
 
-def plot_in_out_together():
+def plot_in_out_separate():
+    """
+    将原先合并在一张图中的数据，拆分为两张图：
+      - 图1: Using Monitor (inmonitor_time.txt)
+      - 图2: Not Using Monitor (outmonitor_time.txt)
+    每张图都是5个箱线图，positions = 1..5
+    """
     data_for_plot, op_labels = gather_in_out_data()
 
-    # 一共 5 组, 每组 2 个箱线 => 10 个箱线
-    # 在 x 轴上, 采用如下 positions 布局:
-    # group1(num_ops=1): x=1(in), x=2(out)
-    # group2(num_ops=2): x=4(in), x=5(out)
-    # group3(num_ops=3): x=7(in), x=8(out)
-    # group4(num_ops=4): x=10(in), x=11(out)
-    # group5(num_ops=5): x=13(in), x=14(out)
-    positions = [1,2, 4,5, 7,8, 10,11, 13,14]
+    # data_for_plot 长度=10, 下标从0到9:
+    #   偶数下标 (0,2,4,6,8) => inmonitor
+    #   奇数下标 (1,3,5,7,9) => outmonitor
+    inmonitor_data  = [data_for_plot[i] for i in range(0, 10, 2)]
+    outmonitor_data = [data_for_plot[i] for i in range(1, 10, 2)]
 
-    # 为在 x 轴上显示标签，居中显示 => (1.5, 4.5, 7.5, 10.5, 13.5)
-    xtick_positions = [1.5, 4.5, 7.5, 10.5, 13.5]
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    # 绘制箱线图
-    box = ax.boxplot(
-        data_for_plot,
-        positions=positions,
-        showmeans=True,
-        meanline=True,
-        patch_artist=True,
-        whis=1.5
-    )
-
-    # 颜色区分: InMonitor(浅蓝), OutMonitor(浅绿)
-    # 切记 data_for_plot[i], i 是 0~9, 奇偶区分
+    # 颜色区分
     in_color  = "#87CEFA"  # 浅蓝
     out_color = "#90EE90"  # 浅绿
 
-    for i, patch in enumerate(box['boxes']):
-        if i % 2 == 0:
-            # InMonitor
-            patch.set_facecolor(in_color)
-        else:
-            # OutMonitor
-            patch.set_facecolor(out_color)
+    # 通用的x轴位置 => 5个箱线 => x=1..5
+    x_positions = range(1, 6)
+
+    # 通用的 y 轴对数刻度 => 范围 2^0 ~ 2^4
+    y_locs   = [1, 2, 4, 8, 16]
+    y_labels = [r"$2^0$", r"$2^1$", r"$2^2$", r"$2^3$", r"$2^4$"]
+
+    # ========== 图1: Using Monitor ==========
+    plt.figure(figsize=(7, 5))
+    box_in = plt.boxplot(
+        inmonitor_data,
+        positions=x_positions,
+        showmeans=True,
+        meanline=True,
+        patch_artist=True,
+        whis=1.5,
+        widths=0.5       # 通过此参数缩小箱线宽度
+    )
+
+    # 上色：Using Monitor
+    for patch in box_in['boxes']:
+        patch.set_facecolor(in_color)
         patch.set_alpha(0.5)
 
-    # 中位数线(红色实线)
-    for median in box['medians']:
+    # 中位数 / 均值 / 异常值
+    for median in box_in['medians']:
         median.set(color='red', linewidth=1.5)
-
-    # 均值线(蓝色虚线)
-    for mean_line in box['means']:
+    for mean_line in box_in['means']:
         mean_line.set(color='blue', linestyle='--')
-
-    # 异常值 - 使用白色圆点
-    for flier in box['fliers']:
+    for flier in box_in['fliers']:
         flier.set(marker='o', markerfacecolor='white', alpha=0.9, markeredgecolor='black')
 
-    # 设置 x 轴标签 & 刻度
-    plt.xticks(xtick_positions, [str(lab) for lab in op_labels], fontsize=16)
+    # X 轴
+    plt.xticks(x_positions, [str(op) for op in op_labels], fontsize=16)
+    plt.xlabel("Num of Operations", fontsize=16)
 
-    # 对数刻度 (base=2), 范围 2^0 -> 2^4
-    ax.set_yscale("log", base=2)
-    ax.set_ylim(1, 16)  # 若实际数据超出此范围, 需调整
-    y_locs = [1,2,4,8,16]
-    y_labels = [r"$2^0$", r"$2^1$", r"$2^2$", r"$2^3$", r"$2^4$"]
+    # Y 轴(对数刻度)
+    plt.yscale("log", base=2)
+    plt.ylim(1, 16)
     plt.yticks(y_locs, y_labels, fontsize=16)
+    plt.ylabel("Execution Time (s)", fontsize=16)
 
-    # 手动创建图例
-    in_patch = mpatches.Patch(color=in_color,  alpha=0.5, label='Using Monitor')
-    out_patch= mpatches.Patch(color=out_color, alpha=0.5, label='Not Using Monitor')
+    # 图例
+    in_patch     = mpatches.Patch(color=in_color, alpha=0.5, label="Using Monitor")
+    median_line  = mlines.Line2D([], [], color='red', linewidth=1.5, label='Median')
+    mean_line    = mlines.Line2D([], [], color='blue', linestyle='--', label='Mean')
+    outlier_dot  = mlines.Line2D([], [], color='black', marker='o', markerfacecolor='white',
+                                 linestyle='None', alpha=0.9, label='Outliers')
+    plt.legend(handles=[in_patch, median_line, mean_line, outlier_dot],
+               loc='upper left', fontsize=10)
+
+    plt.title("Execution Time Distribution Using Monitor", fontsize=16)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig("inmonitor_distribution.svg", format="svg")
+    plt.show()
+
+
+    # ========== 图2: Not Using Monitor ==========
+    plt.figure(figsize=(7, 5))
+    box_out = plt.boxplot(
+        outmonitor_data,
+        positions=x_positions,
+        showmeans=True,
+        meanline=True,
+        patch_artist=True,
+        whis=1.5,
+        widths=0.5       # 同样这里也缩小箱线宽度
+    )
+
+    # 上色：Not Using Monitor
+    for patch in box_out['boxes']:
+        patch.set_facecolor(out_color)
+        patch.set_alpha(0.5)
+
+    # 中位数 / 均值 / 异常值
+    for median in box_out['medians']:
+        median.set(color='red', linewidth=1.5)
+    for mean_line in box_out['means']:
+        mean_line.set(color='blue', linestyle='--')
+    for flier in box_out['fliers']:
+        flier.set(marker='o', markerfacecolor='white', alpha=0.9, markeredgecolor='black')
+
+    # X 轴
+    plt.xticks(x_positions, [str(op) for op in op_labels], fontsize=16)
+    plt.xlabel("Num of Operations", fontsize=16)
+
+    # Y 轴(对数刻度)
+    plt.yscale("log", base=2)
+    plt.ylim(1, 16)
+    plt.yticks(y_locs, y_labels, fontsize=16)
+    plt.ylabel("Execution Time (s)", fontsize=16)
+
+    # 图例
+    out_patch   = mpatches.Patch(color=out_color, alpha=0.5, label="Not Using Monitor")
     median_line = mlines.Line2D([], [], color='red', linewidth=1.5, label='Median')
     mean_line   = mlines.Line2D([], [], color='blue', linestyle='--', label='Mean')
     outlier_dot = mlines.Line2D([], [], color='black', marker='o', markerfacecolor='white',
                                 linestyle='None', alpha=0.9, label='Outliers')
-    plt.legend(
-        handles=[in_patch, out_patch, median_line, mean_line, outlier_dot],
-        loc='upper left'
-    )
+    plt.legend(handles=[out_patch, median_line, mean_line, outlier_dot],
+               loc='upper left', fontsize=10)
 
-    # 坐标轴标题 & 图标题, 字号=16
-    plt.xlabel("Num of Operations", fontsize=16)
-    plt.ylabel("Execution Time (s)", fontsize=16)
-    plt.title("Execution time distribution with and without Monitor", fontsize=16)
-
-    # 虚线网格 (y 方向)
+    plt.title("Execution Time Distribution Not Using Monitor", fontsize=16)
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.tight_layout()
-
-    output_file = "in_out_monitor_comparison.svg"
-    plt.savefig(output_file, format="svg")
-
+    plt.savefig("outmonitor_distribution.svg", format="svg")
     plt.show()
 
 
 if __name__ == "__main__":
-    plot_in_out_together()
+    # 调用拆分后的绘图函数
+    plot_in_out_separate()

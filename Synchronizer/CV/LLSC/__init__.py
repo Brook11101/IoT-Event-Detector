@@ -15,12 +15,14 @@ def connect_to_mysql():
             user="root",
             password="Root123456.",
             database="rule_db",
-            autocommit=True  # MyISAM 不需要事务，直接启用自动提交
+            autocommit=True,
+            use_pure=True  # ✅ 这一行强制使用纯 Python 连接器
         )
         return connection
     except Error as e:
         print(f"Error while connecting to MySQL: {e}")
         return None
+
 
 
 # 创建数据库

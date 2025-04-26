@@ -51,6 +51,7 @@ def gather_two_categories():
     data_for_plot = []
     for num_ops in NUM_OF_OPERATIONS:
         exp_dir = os.path.join(BASE_DIR, f"num_of_operations_{num_ops}")
+
         # 文件1: withcv_time.txt => 丢弃 <1s
         withcv_path = os.path.join(exp_dir, "withcv_time.txt")
         data_withcv = read_times_list(withcv_path, discard_under_1=True)
@@ -65,92 +66,134 @@ def gather_two_categories():
     return data_for_plot, NUM_OF_OPERATIONS
 
 
-def plot_two_categories_box():
+def plot_two_categories_box_separate():
+    """
+    将原本5组×2种方案(共10个箱线)拆分为2张图，每张图各绘制5个箱线。
+      - 图1: CV Using LL/SC-Mutex (withcv_time.txt)
+      - 图2: CV Using CAS-Mutex (withcv_lock_time.txt)
+    """
     data_for_plot, op_labels = gather_two_categories()
 
-    # 共有 5 组，每组 2 条箱线 => 共 10 个箱线图
-    # 分别放在下述 x 位置:
-    # 第1组: x=1,2    第2组: x=4,5
-    # 第3组: x=7,8    第4组: x=10,11
-    # 第5组: x=13,14
-    positions = [1, 2, 4, 5, 7, 8, 10, 11, 13, 14]
+    # data_for_plot有10个元素，下标: 0,1,2,3,4,5,6,7,8,9
+    # 下标偶数 => withcv_time   (LL/SC-Mutex)
+    # 下标奇数 => withcv_lock_time (CAS-Mutex)
 
-    # 用于设置 x 轴刻度的中间位置
-    group_centers = [1.5, 4.5, 7.5, 10.5, 13.5]
+    # 1) 拆分成两组
+    withcv_time_data = [data_for_plot[i] for i in range(0, 10, 2)]  # 0,2,4,6,8
+    lockcv_time_data = [data_for_plot[i] for i in range(1, 10, 2)]  # 1,3,5,7,9
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # 2) 绘制参数
+    color_time = "#87CEFA"  # 浅蓝 => withcv_time
+    color_lock = "#90EE90"  # 浅绿 => withcv_lock_time
 
-    # 绘制箱线图
-    box = ax.boxplot(
-        data_for_plot,
-        positions=positions,
+    # x 轴：5 个箱线 => x=1..5
+    x_positions = range(1, 6)
+
+    # y 轴对数刻度: 1~16 => 2^0 ~ 2^4
+    y_locs   = [1, 2, 4, 8, 16]
+    y_labels = [r"$2^0$", r"$2^1$", r"$2^2$", r"$2^3$", r"$2^4$"]
+
+    # =============== 图1: CV Using LL/SC-Mutex ===============
+    plt.figure(figsize=(8, 5))  # 也可自行调整尺寸
+    box = plt.boxplot(
+        withcv_time_data,
+        positions=x_positions,
         showmeans=True,
         meanline=True,
         patch_artist=True,
         whis=1.5
     )
 
-    # 颜色区分
-    color_time = "#87CEFA"  # 浅蓝 => withcv_time
-    color_lock = "#90EE90"  # 浅绿 => withcv_lock_time
-
-    # 给两个类别着色
-    for i, patch in enumerate(box['boxes']):
-        if i % 2 == 0:
-            # withcv_time
-            patch.set_facecolor(color_time)
-        else:
-            # withcv_lock_time
-            patch.set_facecolor(color_lock)
+    # 给箱线上色
+    for patch in box['boxes']:
+        patch.set_facecolor(color_time)
         patch.set_alpha(0.5)
 
-    # 中位数线(红色)
+    # 中位数(红色)、均值线(蓝色虚线)
     for median in box['medians']:
         median.set(color='red', linewidth=1.5)
-
-    # 均值线(蓝色虚线)
     for mean_line in box['means']:
         mean_line.set(color='blue', linestyle='--')
 
-    # 异常值 => 白色圆点
+    # 异常值(白色圆点)
     for flier in box['fliers']:
         flier.set(marker='o', markerfacecolor='white', alpha=0.9, markeredgecolor='black')
 
-    # x 轴
-    plt.xticks(group_centers, [str(n) for n in op_labels], fontsize=16)
+    # X/Y轴 & 刻度设置
+    plt.xticks(x_positions, [str(n) for n in op_labels], fontsize=16)
     plt.xlabel("Num of Operations", fontsize=16)
 
-    # y 轴设为 2 为底的对数刻度, 范围 1~16 (2^0 ~ 2^4)
-    ax.set_yscale("log", base=2)
-    ax.set_ylim(1, 16)
-    y_locs = [1, 2, 4, 8, 16]
-    y_labels = [r"$2^0$", r"$2^1$", r"$2^2$", r"$2^3$", r"$2^4$"]
+    plt.yscale("log", base=2)
+    plt.ylim(1, 16)
     plt.yticks(y_locs, y_labels, fontsize=16)
     plt.ylabel("Execution Time (s)", fontsize=16)
 
-    # 手动创建图例
-    time_patch = mpatches.Patch(color=color_time, alpha=0.5, label="CV Using LL/SC-Mutex")
-    lock_patch = mpatches.Patch(color=color_lock, alpha=0.5, label="CV Using CAS-Mutex")
-    median_line = mlines.Line2D([], [], color='red', linewidth=1.5, label='Median')
-    mean_line = mlines.Line2D([], [], color='blue', linestyle='--', label='Mean')
-    outlier_dot = mlines.Line2D([], [], color='black', marker='o', markerfacecolor='white',
-                                linestyle='None', alpha=0.9, label='Outliers')
-    plt.legend(handles=[time_patch, lock_patch, median_line, mean_line, outlier_dot],
-               loc='upper left', fontsize=10)
+    # 图例
+    time_patch   = mpatches.Patch(color=color_time, alpha=0.5, label="CV(LL/SC-Mutex)")
+    median_line  = mlines.Line2D([], [], color='red', linewidth=1.5, label='Median')
+    mean_line    = mlines.Line2D([], [], color='blue', linestyle='--', label='Mean')
+    outlier_dot  = mlines.Line2D([], [], color='black', marker='o', markerfacecolor='white',
+                                 linestyle='None', alpha=0.9, label='Outliers')
+    plt.legend(handles=[time_patch, median_line, mean_line, outlier_dot],
+               loc='upper left', fontsize=8)
 
-    # 标题
-    plt.title("Execution time distribution of CV using different mutex", fontsize=16)
-
-    # 网格: Y 方向虚线
+    plt.title("Execution Time Distribution With CV (LL/SC-Mutex)", fontsize=16)
     plt.grid(axis='y', linestyle='--', alpha=0.7)
-
     plt.tight_layout()
+    plt.savefig("cv_time_llsc.svg", format="svg")
+    plt.show()
 
-    output_file = "cv_time_comparison.svg"
-    plt.savefig(output_file, format="svg")
+    # =============== 图2: CV Using CAS-Mutex ===============
+    plt.figure(figsize=(8, 5))
+    box = plt.boxplot(
+        lockcv_time_data,
+        positions=x_positions,
+        showmeans=True,
+        meanline=True,
+        patch_artist=True,
+        whis=1.5
+    )
 
+    # 给箱线上色
+    for patch in box['boxes']:
+        patch.set_facecolor(color_lock)
+        patch.set_alpha(0.5)
+
+    # 中位数(红色)、均值线(蓝色虚线)
+    for median in box['medians']:
+        median.set(color='red', linewidth=1.5)
+    for mean_line in box['means']:
+        mean_line.set(color='blue', linestyle='--')
+
+    # 异常值(白色圆点)
+    for flier in box['fliers']:
+        flier.set(marker='o', markerfacecolor='white', alpha=0.9, markeredgecolor='black')
+
+    # X/Y轴 & 刻度设置
+    plt.xticks(x_positions, [str(n) for n in op_labels], fontsize=16)
+    plt.xlabel("Num of Operations", fontsize=16)
+
+    plt.yscale("log", base=2)
+    plt.ylim(1, 16)
+    plt.yticks(y_locs, y_labels, fontsize=16)
+    plt.ylabel("Execution Time (s)", fontsize=16)
+
+    # 图例
+    lock_patch   = mpatches.Patch(color=color_lock, alpha=0.5, label="CV(CAS-Mutex)")
+    median_line  = mlines.Line2D([], [], color='red', linewidth=1.5, label='Median')
+    mean_line    = mlines.Line2D([], [], color='blue', linestyle='--', label='Mean')
+    outlier_dot  = mlines.Line2D([], [], color='black', marker='o', markerfacecolor='white',
+                                 linestyle='None', alpha=0.9, label='Outliers')
+    plt.legend(handles=[lock_patch, median_line, mean_line, outlier_dot],
+               loc='upper left', fontsize=8)
+
+    plt.title("Execution Time Distribution With CV (CAS-Mutex)", fontsize=16)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig("cv_time_cas.svg", format="svg")
     plt.show()
 
 
 if __name__ == "__main__":
-    plot_two_categories_box()
+    # 使用拆分后的绘图函数
+    plot_two_categories_box_separate()
